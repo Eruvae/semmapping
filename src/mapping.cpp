@@ -31,15 +31,37 @@ inline float depthValue(const sensor_msgs::Image &img, size_t x, size_t y)
 double averageDepth(const sensor_msgs::Image &img, const darknet_ros_msgs::BoundingBox &box)
 {
     double depthSum = 0;
+    double minDepth = DBL_MAX;
+    double maxDepth = -DBL_MAX;
     for (size_t x = box.xmin; x <= box.xmax; x++)
     {
         for (size_t y = box.ymin; y <= box.ymax; y++)
         {
-            depthSum += depthValue(img, x, y);
+            float dval = depthValue(img, x, y);
+            depthSum += dval;
+            if (dval > maxDepth)
+                maxDepth = dval;
+            if (dval < minDepth)
+                minDepth = dval;
         }
     }
     size_t px_cnt = (box.xmax - box.xmin + 1) * (box.ymax - box.ymin + 1);
-    return depthSum / px_cnt;
+    double avg = depthSum / px_cnt;
+
+    double sqr_err = 0;
+    for (size_t x = box.xmin; x <= box.xmax; x++)
+    {
+        for (size_t y = box.ymin; y <= box.ymax; y++)
+        {
+            float dval = depthValue(img, x, y);
+            sqr_err += (dval - avg)*(dval - avg);
+        }
+    }
+    double std_div = std::sqrt(sqr_err / (px_cnt - 1));
+
+    std::cout << "Average: " << avg << ", Min: " << minDepth << ", Max: " << maxDepth << ", Std: " << std_div << std::endl;
+
+    return avg;
 }
 
 void receiveDepthImage(const sensor_msgs::ImageConstPtr &img)
@@ -50,6 +72,10 @@ void receiveDepthImage(const sensor_msgs::ImageConstPtr &img)
 void receiveBoundingBoxes(const darknet_ros_msgs::BoundingBoxesConstPtr &bx)
 {
     boxes = *bx;
+    for (const darknet_ros_msgs::BoundingBox &box : boxes.bounding_boxes)
+    {
+        double avg = averageDepth(depth, box);
+    }
 }
 
 void receiveDepthCloud(const sensor_msgs::PointCloud2ConstPtr &cl)
