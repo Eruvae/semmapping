@@ -8,6 +8,8 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_sensor_msgs/tf2_sensor_msgs.h>
 
+#include <sensor_msgs/image_encodings.h>
+
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/PointCloud2.h>
@@ -27,8 +29,26 @@ darknet_ros_msgs::BoundingBoxes boxes;
 
 inline float depthValue(const sensor_msgs::Image &img, size_t x, size_t y)
 {
-    const float *data = reinterpret_cast<const float*>(img.data.data());
-    return *(data + img.step*y + x);
+    int channels = sensor_msgs::image_encodings::numChannels(img.encoding);
+    if (channels == 4)
+    {
+        const float *data = reinterpret_cast<const float*>(img.data.data());
+        return *(data + img.step*y + x);
+    }
+    else if (channels == 2)
+    {
+        const uint16_t *data = reinterpret_cast<const uint16_t*>(img.data.data());
+        uint16_t val = *(data + img.step*y + x);
+        if (val == 0)
+            return NAN;
+        else
+            return (float) val;
+    }
+    else
+    {
+        ROS_ERROR("Wrong image format");
+        return NAN;
+    }
 }
 
 double averageDepth(const sensor_msgs::Image &img, const darknet_ros_msgs::BoundingBox &box)
