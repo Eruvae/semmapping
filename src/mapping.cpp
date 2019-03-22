@@ -125,12 +125,16 @@ void analyzeDepthInBoxPC(const pcl::PointCloud<pcl::PointXYZ> &cloud, const dark
 {
     static int file_num = 0;
     std::vector<float> depths;
+    int nanVals = 0;
     for (size_t x = box.xmin; x <= box.xmax; x++)
     {
         for (size_t y = box.ymin; y <= box.ymax; y++)
         {
             const pcl::PointXYZ &p = cloud.at(x, y);
-            depths.push_back(p.z);
+            if (!std::isnan(p.z) && !std::isinf(p.z))
+                depths.push_back(p.z);
+            else
+                nanVals++;
         }
     }
     std::sort(depths.begin(), depths.end());
@@ -142,6 +146,7 @@ void analyzeDepthInBoxPC(const pcl::PointCloud<pcl::PointXYZ> &cloud, const dark
     }
     ofile.close();
     file_num++;
+    std::cout << "Nan vals: " << nanVals << std::endl;
 }
 
 void receiveDepthImage(const sensor_msgs::ImageConstPtr &img)
