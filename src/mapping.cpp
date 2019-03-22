@@ -134,12 +134,14 @@ void analyzeDepthInBoxPC(const pcl::PointCloud<pcl::PointXYZ> &cloud, const dark
         }
     }
     std::sort(depths.begin(), depths.end());
-    std::ofstream out("depths-" + file_num++);
+    std::string filename = std::string("depths-") + std::to_string(file_num) + std::string(".csv");
+    std::ofstream ofile(filename);
     for (float val : depths)
     {
-        out << val << std::endl;
+        ofile << val << std::endl;
     }
-    out.close();
+    ofile.close();
+    file_num++;
 }
 
 void receiveDepthImage(const sensor_msgs::ImageConstPtr &img)
