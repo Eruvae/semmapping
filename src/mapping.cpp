@@ -119,10 +119,31 @@ void analyzeDepthInBox(const sensor_msgs::Image &img, const darknet_ros_msgs::Bo
     std::cout << "Nan vals: " << nanVals << std::endl;
 }
 
+void analyzeDepthInBoxPC(const pcl::PointCloud<pcl::PointXYZ> &cloud, const darknet_ros_msgs::BoundingBox &box)
+{
+    static int file_num = 0;
+    std::vector<float> depths;
+    for (size_t x = box.xmin; x <= box.xmax; x++)
+    {
+        for (size_t y = box.ymin; y <= box.ymax; y++)
+        {
+            const pcl::PointXYZ &p = cloud.at(x, y);
+            depths.push_back(p.z);
+        }
+    }
+    std::sort(depths.begin(), depths.end());
+    std::ofstream out("depths-" + file_num++);
+    for (float val : depths)
+    {
+        out << val << std::endl;
+    }
+    out.close();
+}
+
 void receiveDepthImage(const sensor_msgs::ImageConstPtr &img)
 {
     depth = *img;
-    image_received = true;
+    //image_received = true;
 }
 
 void receiveBoundingBoxes(const darknet_ros_msgs::BoundingBoxesConstPtr &bx)
@@ -134,13 +155,16 @@ void receiveBoundingBoxes(const darknet_ros_msgs::BoundingBoxesConstPtr &bx)
         {
             std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
             std::cout << "Image size: " << depth.width << ", " << depth.height << std::endl;
-            analyzeDepthInBox(depth, box);
+            analyzeDepthInBoxPC(depthCloud, box);
         }
     }
 }
 
-void receiveDepthCloud(const sensor_msgs::PointCloud2ConstPtr &cl)
+//void receiveDepthCloud(const sensor_msgs::PointCloud2ConstPtr &cl)
+void receiveDepthCloud(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cl)
 {
+    depthCloud = *cl;
+    image_received = true;
     /*sensor_msgs::PointCloud2 cl_out;
     tfBuffer.transform(*cl, cl_out, map.header.frame_id);
     pcl::fromROSMsg(cl_out, depthCloud);*/
