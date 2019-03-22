@@ -110,12 +110,14 @@ void analyzeDepthInBox(const sensor_msgs::Image &img, const darknet_ros_msgs::Bo
         }
     }
     std::sort(depths.begin(), depths.end());
-    std::ofstream out("depths-" + file_num++);
+    std::string filename = std::string("depths-") + std::to_string(file_num) + std::string(".csv");
+    std::ofstream ofile(filename);
     for (float val : depths)
     {
-        out << val << std::endl;
+        ofile << val << std::endl;
     }
-    out.close();
+    ofile.close();
+    file_num++;
     std::cout << "Nan vals: " << nanVals << std::endl;
 }
 
@@ -187,7 +189,7 @@ int main(int argc, char **argv)
   ros::Subscriber boundingBoxSub = nh.subscribe("/darknet_ros/bounding_boxes", 100, receiveBoundingBoxes);
   ros::Subscriber depthCloudSub = nh.subscribe("/sensorring_cam3d_front/depth/points", 100, receiveDepthCloud);*/
 
-  ros::Subscriber depthImageSub = nh.subscribe("/gibson_ros/camera/depth/image_raw", 100, receiveDepthImage);
+  ros::Subscriber depthImageSub = nh.subscribe("/gibson_ros/camera/depth/image", 100, receiveDepthImage);
   ros::Subscriber boundingBoxSub = nh.subscribe("/darknet_ros/bounding_boxes", 100, receiveBoundingBoxes);
   ros::Subscriber depthCloudSub = nh.subscribe("/gibson_ros/camera/depth_registered/points", 100, receiveDepthCloud);
 
