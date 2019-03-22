@@ -1,5 +1,6 @@
 #include <ros/ros.h>
 #include <cmath>
+#include <fstream>
 #include <pcl_ros/point_cloud.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl_ros/transforms.h>
@@ -93,6 +94,32 @@ double averageDepth(const sensor_msgs::Image &img, const darknet_ros_msgs::Bound
     return avg;
 }
 
+void analyzeDepthInBox(const sensor_msgs::Image &img, const darknet_ros_msgs::BoundingBox &box)
+{
+    static int file_num = 0;
+    std::vector<float> depths;
+    int nanVals = 0;
+    for (size_t x = box.xmin; x <= box.xmax; x++)
+    {
+        for (size_t y = box.ymin; y <= box.ymax; y++)
+        {
+            float dval = depthValue(img, x, y);
+            if (!std::isnan(dval) && !std::isinf(dval))
+                depths.push_back(dval);
+            else
+                nanVals++;
+        }
+    }
+    std::sort(depths.begin(), depths.end());
+    std::ofstream out("depths-" + file_num++);
+    for (float val : depths)
+    {
+        out << val << std::endl;
+    }
+    out.close();
+    std::cout << "Nan vals: " << nanVals << std::endl;
+}
+
 void receiveDepthImage(const sensor_msgs::ImageConstPtr &img)
 {
     depth = *img;
@@ -108,7 +135,7 @@ void receiveBoundingBoxes(const darknet_ros_msgs::BoundingBoxesConstPtr &bx)
         {
             std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
             std::cout << "Image size: " << depth.width << ", " << depth.height << std::endl;
-            double avg = averageDepth(depth, box);
+            analyzeDepthInBox(depth, box);
         }
     }
 }
