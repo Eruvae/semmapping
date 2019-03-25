@@ -138,7 +138,7 @@ void analyzeDepthInBoxPC(const pcl::PointCloud<pcl::PointXYZ> &cloud, const dark
         }
     }
     std::sort(depths.begin(), depths.end());
-    std::string filename = std::string("depths-") + std::to_string(file_num) + std::string(".csv");
+    std::string filename = std::string("depths-") + box.Class + std::to_string(file_num) + std::string(".csv");
     std::ofstream ofile(filename);
     for (float val : depths)
     {
@@ -216,13 +216,13 @@ int main(int argc, char **argv)
 
   tf2_ros::TransformListener tfListener(tfBuffer);
 
-  /*ros::Subscriber depthImageSub = nh.subscribe("/camera/depth/image", 100, receiveDepthImage);
+  ros::Subscriber depthImageSub = nh.subscribe("/sensorring_cam3d/depth/image_raw", 100, receiveDepthImage);
   ros::Subscriber boundingBoxSub = nh.subscribe("/darknet_ros/bounding_boxes", 100, receiveBoundingBoxes);
-  ros::Subscriber depthCloudSub = nh.subscribe("/sensorring_cam3d_front/depth/points", 100, receiveDepthCloud);*/
+  ros::Subscriber depthCloudSub = nh.subscribe("/sensorring_cam3d/depth/points", 100, receiveDepthCloud);
 
-  ros::Subscriber depthImageSub = nh.subscribe("/gibson_ros/camera/depth/image", 100, receiveDepthImage);
+  /*ros::Subscriber depthImageSub = nh.subscribe("/gibson_ros/camera/depth/image", 100, receiveDepthImage);
   ros::Subscriber boundingBoxSub = nh.subscribe("/darknet_ros/bounding_boxes", 100, receiveBoundingBoxes);
-  ros::Subscriber depthCloudSub = nh.subscribe("/gibson_ros/camera/depth_registered/points", 100, receiveDepthCloud);
+  ros::Subscriber depthCloudSub = nh.subscribe("/gibson_ros/camera/depth_registered/points", 100, receiveDepthCloud);*/
 
   ros::spin();
 }
