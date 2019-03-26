@@ -4,6 +4,12 @@
 #include <pcl_ros/point_cloud.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl_ros/transforms.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/search/search.h>
+#include <pcl/search/kdtree.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/segmentation/region_growing.h>
+#include <pcl/visualization/cloud_viewer.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -25,7 +31,7 @@ hypermap_msgs::SemanticMap map;
 sensor_msgs::Image depth;
 sensor_msgs::CameraInfo info;
 //sensor_msgs::PointCloud2 depthCloud;
-pcl::PointCloud<pcl::PointXYZ> depthCloud;
+pcl::PointCloud<pcl::PointXYZ>::Ptr depthCloud(new pcl::PointCloud<pcl::PointXYZ>);
 darknet_ros_msgs::BoundingBoxes boxes;
 
 inline float depthValue(const sensor_msgs::Image &img, size_t x, size_t y)
@@ -121,6 +127,76 @@ void analyzeDepthInBox(const sensor_msgs::Image &img, const darknet_ros_msgs::Bo
     std::cout << "Nan vals: " << nanVals << std::endl;
 }
 
+void getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const darknet_ros_msgs::BoundingBox &box)
+{
+    /*pcl::PointCloud<pcl::PointXYZ>::Ptr object(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::ExtractIndices<pcl::PointXYZ> boxFilter;
+    boxFilter.setInputCloud(cloud);
+    boxFilter.setKeepOrganized(true);
+    pcl::PointIndices::Ptr boxIndices(new pcl::PointIndices);
+    for (size_t x = box.xmin; x <= box.xmax; x++)
+    {
+        for (size_t y = box.ymin; y <= box.ymax; y++)
+        {
+            boxIndices->indices.push_back(y * cloud->width + x);
+        }
+    }
+    boxFilter.setIndices(boxIndices);
+    boxFilter.filter(*object);*/
+
+    pcl::IndicesPtr indices (new std::vector <int>);
+    for (size_t x = box.xmin; x <= box.xmax; x++)
+    {
+        for (size_t y = box.ymin; y <= box.ymax; y++)
+        {
+            indices->push_back(y * cloud->width + x);
+        }
+    }
+
+    pcl::search::Search<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
+    pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
+    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normal_estimator;
+    normal_estimator.setSearchMethod (tree);
+    normal_estimator.setInputCloud (cloud);
+    normal_estimator.setKSearch (50);
+    normal_estimator.compute (*normals);
+
+    pcl::RegionGrowing<pcl::PointXYZ, pcl::Normal> reg;
+    reg.setMinClusterSize (50);
+    reg.setMaxClusterSize (1000000);
+    reg.setSearchMethod (tree);
+    reg.setNumberOfNeighbours (30);
+    reg.setInputCloud (cloud);
+    reg.setIndices (indices);
+    reg.setInputNormals (normals);
+    reg.setSmoothnessThreshold (3.0 / 180.0 * M_PI);
+    reg.setCurvatureThreshold (1.0);
+
+    std::vector <pcl::PointIndices> clusters;
+    reg.extract (clusters);
+
+    std::cout << "Number of clusters is equal to " << clusters.size () << std::endl;
+    std::cout << "First cluster has " << clusters[0].indices.size () << " points." << endl;
+    std::cout << "These are the indices of the points of the initial" <<
+    std::endl << "cloud that belong to the first cluster:" << std::endl;
+    int counter = 0;
+    while (counter < clusters[0].indices.size ())
+    {
+    std::cout << clusters[0].indices[counter] << ", ";
+    counter++;
+    if (counter % 10 == 0)
+      std::cout << std::endl;
+    }
+    std::cout << std::endl;
+
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud ();
+    pcl::visualization::CloudViewer viewer ("Cluster viewer");
+    viewer.showCloud(colored_cloud);
+    while (!viewer.wasStopped ())
+    {
+    }
+}
+
 void analyzeDepthInBoxPC(const pcl::PointCloud<pcl::PointXYZ> &cloud, const darknet_ros_msgs::BoundingBox &box)
 {
     static int file_num = 0;
@@ -164,7 +240,8 @@ void receiveBoundingBoxes(const darknet_ros_msgs::BoundingBoxesConstPtr &bx)
         {
             std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
             std::cout << "Image size: " << depth.width << ", " << depth.height << std::endl;
-            analyzeDepthInBoxPC(depthCloud, box);
+            //analyzeDepthInBoxPC(*depthCloud, box);
+            getObjectPoints(depthCloud, box);
         }
     }
 }
@@ -172,7 +249,7 @@ void receiveBoundingBoxes(const darknet_ros_msgs::BoundingBoxesConstPtr &bx)
 //void receiveDepthCloud(const sensor_msgs::PointCloud2ConstPtr &cl)
 void receiveDepthCloud(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cl)
 {
-    depthCloud = *cl;
+    *depthCloud = *cl;
     image_received = true;
     /*sensor_msgs::PointCloud2 cl_out;
     tfBuffer.transform(*cl, cl_out, map.header.frame_id);

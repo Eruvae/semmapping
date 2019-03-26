@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
+find_package(PCL REQUIRED)
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -117,6 +118,15 @@ catkin_package(
 include_directories(
 # include
   ${catkin_INCLUDE_DIRS}
+  ${PCL_INCLUDE_DIRS}
+)
+
+link_directories(
+  ${PCL_LIBRARY_DIRS}
+)
+
+add_definitions(
+  ${PCL_DEFINITIONS}
 )
 
 ## Declare a C++ library
@@ -152,6 +162,7 @@ add_dependencies(mapping ${catkin_EXPORTED_TARGETS})
 # )
 target_link_libraries(mapping
   ${catkin_LIBRARIES}
+  ${PCL_LIBRARIES}
 )
 
 #############
