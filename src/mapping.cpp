@@ -9,11 +9,13 @@
 #include <pcl/search/kdtree.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/segmentation/region_growing.h>
-#include <pcl/visualization/cloud_viewer.h>
+//#include <pcl/visualization/cloud_viewer.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_sensor_msgs/tf2_sensor_msgs.h>
+#include "tf2_ros/message_filter.h"
+#include "message_filters/subscriber.h"
 
 #include <sensor_msgs/image_encodings.h>
 
@@ -22,8 +24,11 @@
 #include <sensor_msgs/PointCloud2.h>
 #include "darknet_ros_msgs/BoundingBoxes.h"
 #include "hypermap_msgs/SemanticMap.h"
+#include <geometry_msgs/PolygonStamped.h>
+
 
 tf2_ros::Buffer tfBuffer;
+ros::Publisher detectedPgPub;
 
 volatile bool image_received = false;
 
@@ -127,6 +132,33 @@ void analyzeDepthInBox(const sensor_msgs::Image &img, const darknet_ros_msgs::Bo
     std::cout << "Nan vals: " << nanVals << std::endl;
 }
 
+geometry_msgs::Polygon::Ptr get2DBoxInMap(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, pcl::PointIndices::Ptr indices)
+{
+    geometry_msgs::Point32 min;
+    geometry_msgs::Point32 maxmin;
+    geometry_msgs::Point32 max;
+    geometry_msgs::Point32 minmax;
+    min.x = DBL_MAX; min.y = DBL_MAX;
+    max.x = -DBL_MAX; max.y = -DBL_MAX;
+
+    for (int index : indices->indices)
+    {
+        const pcl::PointXYZ &p = (*cloud)[index];
+        if (p.x < min.x) min.x = p.x;
+        if (p.y < min.y) min.y = p.y;
+        if (p.x > max.x) max.x = p.x;
+        if (p.y > max.y) max.y = p.y;
+    }
+    maxmin.x = max.x; maxmin.y = min.y;
+    minmax.x = min.x; minmax.y = max.y;
+    geometry_msgs::Polygon::Ptr pg(new geometry_msgs::Polygon);
+    pg->points.push_back(min);
+    pg->points.push_back(maxmin);
+    pg->points.push_back(max);
+    pg->points.push_back(minmax);
+    return pg;
+}
+
 pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const darknet_ros_msgs::BoundingBox &box)
 {
     /*pcl::PointCloud<pcl::PointXYZ>::Ptr object(new pcl::PointCloud<pcl::PointXYZ>);
@@ -176,26 +208,19 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     std::vector <pcl::PointIndices> clusters;
     reg.extract (clusters);
 
-    std::cout << "Number of clusters is equal to " << clusters.size () << std::endl;
-    std::cout << "First cluster has " << clusters[0].indices.size () << " points." << endl;
-    std::cout << "These are the indices of the points of the initial" <<
-    std::endl << "cloud that belong to the first cluster:" << std::endl;
-    int counter = 0;
-    while (counter < clusters[0].indices.size ())
-    {
-        std::cout << clusters[0].indices[counter] << ", ";
-        counter++;
-        if (counter % 10 == 0)
-            std::cout << std::endl;
-    }
+    std::cout << "Number of clusters is equal to " << clusters.size() << std::endl;
+    std::cout << "Cluster sizes: ";
+    for (auto &cluster : clusters)
+        std::cout << cluster.indices.size() << ", ";
     std::cout << std::endl;
 
-    pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud ();
+
+    /*pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
     pcl::visualization::CloudViewer viewer ("Cluster viewer");
     viewer.showCloud(colored_cloud);
     while (!viewer.wasStopped ())
     {
-    }
+    }*/
 
     size_t maxInd = 0, maxSize = 0;
     for (size_t i = 0; i < clusters.size(); i++)
@@ -256,19 +281,23 @@ void receiveBoundingBoxes(const darknet_ros_msgs::BoundingBoxesConstPtr &bx)
             std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
             std::cout << "Image size: " << depth.width << ", " << depth.height << std::endl;
             //analyzeDepthInBoxPC(*depthCloud, box);
-            getObjectPoints(depthCloud, box);
+            pcl::PointIndices::Ptr indices = getObjectPoints(depthCloud, box);
+            geometry_msgs::Polygon::Ptr res_pg = get2DBoxInMap(depthCloud, indices);
+
         }
     }
 }
 
-//void receiveDepthCloud(const sensor_msgs::PointCloud2ConstPtr &cl)
-void receiveDepthCloud(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cl)
+void receiveDepthCloud(const sensor_msgs::PointCloud2ConstPtr &cl)
+//void receiveDepthCloud(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cl)
 {
-    *depthCloud = *cl;
+    /*depthCloud = *cl;
+    image_received = true;*/
+    sensor_msgs::PointCloud2 cl_out;
+    tfBuffer.transform(*cl, cl_out, "map");
+    //tf2::doTransform(*cl, cl_out, tfBuffer.lookupTransform("map", tf2::getFrameId(*cl), ros::Time(0), ros::Duration(0)));
+    pcl::fromROSMsg(cl_out, *depthCloud);
     image_received = true;
-    /*sensor_msgs::PointCloud2 cl_out;
-    tfBuffer.transform(*cl, cl_out, map.header.frame_id);
-    pcl::fromROSMsg(cl_out, depthCloud);*/
 }
 
 void pclExtractPoints(const pcl::PointCloud<pcl::PointXYZ> depthCloud, const darknet_ros_msgs::BoundingBox &box)
@@ -308,13 +337,19 @@ int main(int argc, char **argv)
 
   tf2_ros::TransformListener tfListener(tfBuffer);
 
-  ros::Subscriber depthImageSub = nh.subscribe("/sensorring_cam3d/depth/image_raw", 100, receiveDepthImage);
+  /*ros::Subscriber depthImageSub = nh.subscribe("/sensorring_cam3d/depth/image_raw", 100, receiveDepthImage);
   ros::Subscriber boundingBoxSub = nh.subscribe("/darknet_ros/bounding_boxes", 100, receiveBoundingBoxes);
-  ros::Subscriber depthCloudSub = nh.subscribe("/sensorring_cam3d/depth/points", 100, receiveDepthCloud);
+  ros::Subscriber depthCloudSub = nh.subscribe("/sensorring_cam3d/depth/points", 100, receiveDepthCloud);*/
 
-  /*ros::Subscriber depthImageSub = nh.subscribe("/gibson_ros/camera/depth/image", 100, receiveDepthImage);
+  ros::Subscriber depthImageSub = nh.subscribe("/gibson_ros/camera/depth/image", 100, receiveDepthImage);
   ros::Subscriber boundingBoxSub = nh.subscribe("/darknet_ros/bounding_boxes", 100, receiveBoundingBoxes);
-  ros::Subscriber depthCloudSub = nh.subscribe("/gibson_ros/camera/depth_registered/points", 100, receiveDepthCloud);*/
+  //ros::Subscriber depthCloudSub = nh.subscribe("/gibson_ros/camera/depth_registered/points", 100, receiveDepthCloud);
+  message_filters::Subscriber<sensor_msgs::PointCloud2> depthCloudSub;
+  tf2_ros::MessageFilter<sensor_msgs::PointCloud2> depthCloudFilter(depthCloudSub, tfBuffer, "map", 10, 0);
+  depthCloudSub.subscribe(nh, "/gibson_ros/camera/depth_registered/points", 10);
+  depthCloudFilter.registerCallback(receiveDepthCloud);
+
+  detectedPgPub = nh.advertise<geometry_msgs::PolygonStamped>("detected_pg", 1);
 
   ros::spin();
 }
