@@ -127,7 +127,7 @@ void analyzeDepthInBox(const sensor_msgs::Image &img, const darknet_ros_msgs::Bo
     std::cout << "Nan vals: " << nanVals << std::endl;
 }
 
-void getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const darknet_ros_msgs::BoundingBox &box)
+pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const darknet_ros_msgs::BoundingBox &box)
 {
     /*pcl::PointCloud<pcl::PointXYZ>::Ptr object(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::ExtractIndices<pcl::PointXYZ> boxFilter;
@@ -144,14 +144,14 @@ void getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const darkn
     boxFilter.setIndices(boxIndices);
     boxFilter.filter(*object);*/
 
-    pcl::IndicesPtr indices (new std::vector <int>);
+    /*pcl::IndicesPtr indices (new std::vector <int>);
     for (size_t x = box.xmin; x <= box.xmax; x++)
     {
         for (size_t y = box.ymin; y <= box.ymax; y++)
         {
             indices->push_back(y * cloud->width + x);
         }
-    }
+    }*/
 
     pcl::search::Search<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
     pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
@@ -167,7 +167,8 @@ void getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const darkn
     reg.setSearchMethod (tree);
     reg.setNumberOfNeighbours (30);
     reg.setInputCloud (cloud);
-    reg.setIndices (indices);
+    //reg.setIndices (indices);
+    reg.setIndices(box.ymin, box.xmin, box.ymax - box.ymin/* + 1*/, box.xmax - box.xmin/* + 1*/);
     reg.setInputNormals (normals);
     reg.setSmoothnessThreshold (3.0 / 180.0 * M_PI);
     reg.setCurvatureThreshold (1.0);
@@ -182,10 +183,10 @@ void getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const darkn
     int counter = 0;
     while (counter < clusters[0].indices.size ())
     {
-    std::cout << clusters[0].indices[counter] << ", ";
-    counter++;
-    if (counter % 10 == 0)
-      std::cout << std::endl;
+        std::cout << clusters[0].indices[counter] << ", ";
+        counter++;
+        if (counter % 10 == 0)
+            std::cout << std::endl;
     }
     std::cout << std::endl;
 
@@ -195,6 +196,20 @@ void getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const darkn
     while (!viewer.wasStopped ())
     {
     }
+
+    size_t maxInd = 0, maxSize = 0;
+    for (size_t i = 0; i < clusters.size(); i++)
+    {
+        if (clusters[i].indices.size() > maxSize)
+        {
+            maxInd = i;
+            maxSize = clusters[i].indices.size();
+        }
+    }
+
+    pcl::PointIndices::Ptr res(new pcl::PointIndices);
+    *res = std::move(clusters[maxInd]);
+    return res;
 }
 
 void analyzeDepthInBoxPC(const pcl::PointCloud<pcl::PointXYZ> &cloud, const darknet_ros_msgs::BoundingBox &box)
