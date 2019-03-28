@@ -32,16 +32,16 @@
 tf2_ros::Buffer tfBuffer;
 ros::Publisher detectedPgPub;
 
-volatile bool image_received = false;
+//volatile bool image_received = false;
 
-hypermap_msgs::SemanticMap map;
-sensor_msgs::Image depth;
-sensor_msgs::CameraInfo info;
+//hypermap_msgs::SemanticMap map;
+//sensor_msgs::Image depth;
+//sensor_msgs::CameraInfo info;
 //sensor_msgs::PointCloud2 depthCloud;
-pcl::PointCloud<pcl::PointXYZ>::Ptr depthCloud(new pcl::PointCloud<pcl::PointXYZ>);
-darknet_ros_msgs::BoundingBoxes boxes;
+//pcl::PointCloud<pcl::PointXYZ>::Ptr depthCloud(new pcl::PointCloud<pcl::PointXYZ>);
+//darknet_ros_msgs::BoundingBoxes boxes;
 
-inline float depthValue(const sensor_msgs::Image &img, size_t x, size_t y)
+/*inline float depthValue(const sensor_msgs::Image &img, size_t x, size_t y)
 {
     if (img.encoding == "32FC1")
     {
@@ -133,6 +133,104 @@ void analyzeDepthInBox(const sensor_msgs::Image &img, const darknet_ros_msgs::Bo
     file_num++;
     std::cout << "Nan vals: " << nanVals << std::endl;
 }
+
+void analyzeDepthInBoxPC(const pcl::PointCloud<pcl::PointXYZ> &cloud, const darknet_ros_msgs::BoundingBox &box)
+{
+    static int file_num = 0;
+    std::vector<float> depths;
+    int nanVals = 0;
+    for (size_t x = box.xmin; x <= box.xmax; x++)
+    {
+        for (size_t y = box.ymin; y <= box.ymax; y++)
+        {
+            const pcl::PointXYZ &p = cloud.at(x, y);
+            if (!std::isnan(p.z) && !std::isinf(p.z))
+                depths.push_back(p.z);
+            else
+                nanVals++;
+        }
+    }
+    std::sort(depths.begin(), depths.end());
+    std::string filename = std::string("depths-") + box.Class + std::to_string(file_num) + std::string(".csv");
+    std::ofstream ofile(filename);
+    for (float val : depths)
+    {
+        ofile << val << std::endl;
+    }
+    ofile.close();
+    file_num++;
+    std::cout << "Nan vals: " << nanVals << std::endl;
+}
+
+void receiveDepthImage(const sensor_msgs::ImageConstPtr &img)
+{
+    depth = *img;
+    //image_received = true;
+}
+
+void receiveBoundingBoxes(const darknet_ros_msgs::BoundingBoxesConstPtr &bx)
+{
+    boxes = *bx;
+    if (image_received)
+    {
+        for (const darknet_ros_msgs::BoundingBox &box : boxes.bounding_boxes)
+        {
+            std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
+            std::cout << "Image size: " << depth.width << ", " << depth.height << std::endl;
+            //analyzeDepthInBoxPC(*depthCloud, box);
+            pcl::PointIndices::Ptr indices = getObjectPoints(depthCloud, box);
+            geometry_msgs::Polygon::Ptr res_pg = get2DBoxInMap(depthCloud, indices);
+            geometry_msgs::PolygonStamped message;
+            message.polygon = std::move(*res_pg);
+            message.header.frame_id = "map";
+            message.header.stamp = ros::Time::now();
+            detectedPgPub.publish(message);
+
+        }
+    }
+}
+
+void receiveDepthCloud(const sensor_msgs::PointCloud2ConstPtr &cl)
+//void receiveDepthCloud(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cl)
+{
+    //depthCloud = *cl;
+    //image_received = true;
+    sensor_msgs::PointCloud2 cl_out;
+    tfBuffer.transform(*cl, cl_out, "map");
+    //tf2::doTransform(*cl, cl_out, tfBuffer.lookupTransform("map", tf2::getFrameId(*cl), ros::Time(0), ros::Duration(0)));
+    pcl::fromROSMsg(cl_out, *depthCloud);
+    image_received = true;
+}
+
+void pclExtractPoints(const pcl::PointCloud<pcl::PointXYZ> depthCloud, const darknet_ros_msgs::BoundingBox &box)
+{
+    //pcl::PointCloud<pcl::PointXYZ> cloud;
+    //pcl::fromROSMsg(depthCloud, cloud);
+
+    for (size_t x = box.xmin; x <= box.xmax; x++)
+    {
+        for (size_t y = box.ymin; y <= box.ymax; y++)
+        {
+            const pcl::PointXYZ &p = depthCloud.at(x, y);
+        }
+    }
+}
+
+void transformBoxToMap()
+{
+    geometry_msgs::TransformStamped trans = tfBuffer.lookupTransform(map.header.frame_id, info.header.frame_id, info.header.stamp, ros::Duration(1));
+    geometry_msgs::Vector3 cam_orig = trans.transform.translation;
+    geometry_msgs::Quaternion cam_rot = trans.transform.rotation;
+
+    tf2::Quaternion cam_rot_tf;
+    tf2::convert(cam_rot, cam_rot_tf);
+    tf2::Matrix3x3 mat(cam_rot_tf);
+
+    double depth = 5.0; // TODO: actual depth
+
+    tf2::Vector3 z_dir = mat.getColumn(2);
+    tf2::Vector3 z_dist = depth * z_dir;
+}*/
 
 geometry_msgs::Polygon::Ptr get2DBoxInMap(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, pcl::PointIndices::Ptr indices)
 {
@@ -239,97 +337,15 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     return res;
 }
 
-void analyzeDepthInBoxPC(const pcl::PointCloud<pcl::PointXYZ> &cloud, const darknet_ros_msgs::BoundingBox &box)
-{
-    static int file_num = 0;
-    std::vector<float> depths;
-    int nanVals = 0;
-    for (size_t x = box.xmin; x <= box.xmax; x++)
-    {
-        for (size_t y = box.ymin; y <= box.ymax; y++)
-        {
-            const pcl::PointXYZ &p = cloud.at(x, y);
-            if (!std::isnan(p.z) && !std::isinf(p.z))
-                depths.push_back(p.z);
-            else
-                nanVals++;
-        }
-    }
-    std::sort(depths.begin(), depths.end());
-    std::string filename = std::string("depths-") + box.Class + std::to_string(file_num) + std::string(".csv");
-    std::ofstream ofile(filename);
-    for (float val : depths)
-    {
-        ofile << val << std::endl;
-    }
-    ofile.close();
-    file_num++;
-    std::cout << "Nan vals: " << nanVals << std::endl;
-}
-
-void receiveDepthImage(const sensor_msgs::ImageConstPtr &img)
-{
-    depth = *img;
-    //image_received = true;
-}
-
-void receiveBoundingBoxes(const darknet_ros_msgs::BoundingBoxesConstPtr &bx)
-{
-    boxes = *bx;
-    if (image_received)
-    {
-        for (const darknet_ros_msgs::BoundingBox &box : boxes.bounding_boxes)
-        {
-            std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
-            std::cout << "Image size: " << depth.width << ", " << depth.height << std::endl;
-            //analyzeDepthInBoxPC(*depthCloud, box);
-            pcl::PointIndices::Ptr indices = getObjectPoints(depthCloud, box);
-            geometry_msgs::Polygon::Ptr res_pg = get2DBoxInMap(depthCloud, indices);
-            geometry_msgs::PolygonStamped message;
-            message.polygon = std::move(*res_pg);
-            message.header.frame_id = "map";
-            message.header.stamp = ros::Time::now();
-            detectedPgPub.publish(message);
-
-        }
-    }
-}
-
-void receiveDepthCloud(const sensor_msgs::PointCloud2ConstPtr &cl)
-//void receiveDepthCloud(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cl)
-{
-    /*depthCloud = *cl;
-    image_received = true;*/
-    sensor_msgs::PointCloud2 cl_out;
-    tfBuffer.transform(*cl, cl_out, "map");
-    //tf2::doTransform(*cl, cl_out, tfBuffer.lookupTransform("map", tf2::getFrameId(*cl), ros::Time(0), ros::Duration(0)));
-    pcl::fromROSMsg(cl_out, *depthCloud);
-    image_received = true;
-}
-
-void pclExtractPoints(const pcl::PointCloud<pcl::PointXYZ> depthCloud, const darknet_ros_msgs::BoundingBox &box)
-{
-    //pcl::PointCloud<pcl::PointXYZ> cloud;
-    //pcl::fromROSMsg(depthCloud, cloud);
-
-    for (size_t x = box.xmin; x <= box.xmax; x++)
-    {
-        for (size_t y = box.ymin; y <= box.ymax; y++)
-        {
-            const pcl::PointXYZ &p = depthCloud.at(x, y);
-        }
-    }
-}
-
 void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_msgs::BoundingBoxes::ConstPtr &boxes)
 {
+    ROS_INFO_STREAM("Time stamps comp - boxes: " << boxes->header.stamp << "; cloud: " << cloud->header.stamp);
     tfBuffer.transform(*cloud, *cloud, "map");
     pcl::PointCloud<pcl::PointXYZ>::Ptr pclCloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(*cloud, *pclCloud);
     for (const darknet_ros_msgs::BoundingBox &box : boxes->bounding_boxes)
     {
-        std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
-        std::cout << "Image size: " << depth.width << ", " << depth.height << std::endl;
+        //std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
         pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, box);
         geometry_msgs::Polygon::Ptr res_pg = get2DBoxInMap(pclCloud, indices);
         geometry_msgs::PolygonStamped message;
@@ -340,20 +356,10 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
     }
 }
 
-void transformBoxToMap()
+void preprocessBoxes(const darknet_ros_msgs::BoundingBoxes::Ptr &boxes)
 {
-    geometry_msgs::TransformStamped trans = tfBuffer.lookupTransform(map.header.frame_id, info.header.frame_id, info.header.stamp, ros::Duration(1));
-    geometry_msgs::Vector3 cam_orig = trans.transform.translation;
-    geometry_msgs::Quaternion cam_rot = trans.transform.rotation;
-
-    tf2::Quaternion cam_rot_tf;
-    tf2::convert(cam_rot, cam_rot_tf);
-    tf2::Matrix3x3 mat(cam_rot_tf);
-
-    double depth = 5.0; // TODO: actual depth
-
-    tf2::Vector3 z_dir = mat.getColumn(2);
-    tf2::Vector3 z_dist = depth * z_dir;
+    ROS_INFO_STREAM("Time stamps boxes orig - header: " << boxes->header.stamp << "; image_header: " << boxes->image_header.stamp);
+    boxes->header = boxes->image_header;
 }
 
 int main(int argc, char **argv)
@@ -366,6 +372,7 @@ int main(int argc, char **argv)
   message_filters::Subscriber<sensor_msgs::PointCloud2> depthCloudSub(nh, "/sensorring_cam3d/depth/points", 1);
   tf2_ros::MessageFilter<sensor_msgs::PointCloud2> tfFilter(depthCloudSub, tfBuffer, "map", 10, nh);
   message_filters::Subscriber<darknet_ros_msgs::BoundingBoxes> boundingBoxSub(nh, "/darknet_ros/bounding_boxes", 1);
+  boundingBoxSub.registerCallback(preprocessBoxes);
 
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, darknet_ros_msgs::BoundingBoxes> BoxSynchronizerPolicy;
   message_filters::Synchronizer<BoxSynchronizerPolicy> sync(BoxSynchronizerPolicy(10), tfFilter, boundingBoxSub);
