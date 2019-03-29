@@ -18,6 +18,7 @@
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
+#include <message_filters/sync_policies/exact_time.h>
 
 #include <sensor_msgs/image_encodings.h>
 
@@ -27,6 +28,8 @@
 #include "darknet_ros_msgs/BoundingBoxes.h"
 #include "hypermap_msgs/SemanticMap.h"
 #include <geometry_msgs/PolygonStamped.h>
+
+#include "boxsyncpolicy.h"
 
 
 tf2_ros::Buffer tfBuffer;
@@ -339,7 +342,7 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
 
 void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_msgs::BoundingBoxes::ConstPtr &boxes)
 {
-    ROS_INFO_STREAM("Time stamps comp - boxes: " << boxes->header.stamp << "; cloud: " << cloud->header.stamp);
+    ROS_INFO_STREAM("Time stamps comp - boxes: " << boxes->header.stamp << "; Image header: " << boxes->image_header.stamp << "; cloud: " << cloud->header.stamp);
     tfBuffer.transform(*cloud, *cloud, "map");
     pcl::PointCloud<pcl::PointXYZ>::Ptr pclCloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(*cloud, *pclCloud);
@@ -356,12 +359,6 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
     }
 }
 
-void preprocessBoxes(const darknet_ros_msgs::BoundingBoxes::Ptr &boxes)
-{
-    ROS_INFO_STREAM("Time stamps boxes orig - header: " << boxes->header.stamp << "; image_header: " << boxes->image_header.stamp);
-    boxes->header = boxes->image_header;
-}
-
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "mapping");
@@ -372,10 +369,8 @@ int main(int argc, char **argv)
   message_filters::Subscriber<sensor_msgs::PointCloud2> depthCloudSub(nh, "/sensorring_cam3d/depth/points", 1);
   tf2_ros::MessageFilter<sensor_msgs::PointCloud2> tfFilter(depthCloudSub, tfBuffer, "map", 10, nh);
   message_filters::Subscriber<darknet_ros_msgs::BoundingBoxes> boundingBoxSub(nh, "/darknet_ros/bounding_boxes", 1);
-  boundingBoxSub.registerCallback(preprocessBoxes);
 
-  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, darknet_ros_msgs::BoundingBoxes> BoxSynchronizerPolicy;
-  message_filters::Synchronizer<BoxSynchronizerPolicy> sync(BoxSynchronizerPolicy(10), tfFilter, boundingBoxSub);
+  message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfFilter, boundingBoxSub);
 
   sync.registerCallback(processBoxes);
 

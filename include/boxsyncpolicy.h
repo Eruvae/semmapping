@@ -1,0 +1,31 @@
+#ifndef BOXSYNCPOLICY_H
+#define BOXSYNCPOLICY_H
+
+#include <message_filters/sync_policies/exact_time.h>
+
+#include <sensor_msgs/PointCloud2.h>
+#include <darknet_ros_msgs/BoundingBoxes.h>
+
+namespace ros
+{
+    namespace message_traits
+    {
+        /**
+         * \brief TimeStamp trait.  Override default implementation for BoundingBoxes message
+         * returns &m.image_header.stamp instead of &m.header.stamp
+         */
+
+        template <>
+        struct TimeStamp<darknet_ros_msgs::BoundingBoxes>
+        {
+          static ros::Time* pointer(typename boost::remove_const<darknet_ros_msgs::BoundingBoxes>::type &m) { return &m.image_header.stamp; }
+          static ros::Time const* pointer(const darknet_ros_msgs::BoundingBoxes& m) { return &m.image_header.stamp; }
+          static ros::Time value(const darknet_ros_msgs::BoundingBoxes& m) { return m.image_header.stamp; }
+        };
+    }
+
+}
+
+typedef message_filters::sync_policies::ExactTime<sensor_msgs::PointCloud2, darknet_ros_msgs::BoundingBoxes> BoxSyncPolicy;
+
+#endif // BOXSYNCPOLICY_H
