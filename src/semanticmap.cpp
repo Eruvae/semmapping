@@ -10,7 +10,7 @@ SemanticMap::SemanticMap()
 
 void SemanticMap::filterIntersectionThresh(std::set<size_t> &object_list, const polygon &pg)
 {
-    const double FIT_THRESH = 0.6; // threshold to consider new shape as evidence
+    //std::remove_if(object_list.begin(), object_list.end(), [](size_t x){return ref_fit(pg, objectList[x].shape_union) < FIT_THRESH});
     for (auto it = object_list.begin(); it != object_list.end(); )
     {
         SemanticObject &obj = objectList[*it];
@@ -21,21 +21,59 @@ void SemanticMap::filterIntersectionThresh(std::set<size_t> &object_list, const 
     }
 }
 
-int SemanticMap::findFittingExistingShape(std::vector<polygon> &shapes, const polygon &pg)
+int SemanticMap::findFittingExistingShape(std::vector<UncertainShape> &shapes, const polygon &pg)
 {
-    const double MIN_FIT = 0.9; // minmal fit for shape to be considered same
     double best_fit = MIN_FIT;
     int index = -1;
     for (int i = 0; i < shapes.size(); i++)
     {
-        double shape_fit = union_fit(pg, shapes[i]);
-        if (shape_fit > best_fit)
+        double shape_fit = union_fit(pg, shapes[i].shape);
+        if (shape_fit >= best_fit)
         {
             best_fit = shape_fit;
             index = i;
         }
     }
     return index;
+}
+
+int SemanticMap::deleteLeastConsistentShape(SemanticObject &obj)
+{
+
+}
+
+void SemanticMap::cleanupShapes(SemanticObject &obj)
+{
+    for (auto i = obj.shapes.begin(); i != obj.shapes.end() - 1; i++)
+    {
+        for (auto j = i + 1; j != obj.shapes.end(); j++)
+        {
+            double shape_fit = union_fit(i->shape, j->shape);
+            if (shape_fit >= MIN_FIT)
+            {
+                multi_polygon un;
+                bg::union_(i->shape, j->shape, un);
+                i->shape = un[0];
+                i->certainty += j->certainty;
+                obj.shapes.erase(j);
+            }
+            else
+            {
+                j++;
+            }
+        }
+    }
+    updateUnion(obj);
+}
+
+void SemanticMap::updateUnion(SemanticObject &obj)
+{
+    multi_polygon un;
+    for (auto i = obj.shapes.begin(); i != obj.shapes.end() - 1; i++)
+    {
+        bg::union_(un, i->shape, un);
+    }
+    obj.shape_union = un[0];
 }
 
 void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
@@ -56,6 +94,11 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
             if (fittingShapeInd < 0)
             {
                 // not fitting shape found, create new shape
+                if (obj.shapes.size() >= MAX_SHAPES)
+                {
+                    // delete least consistent shape
+                }
+
             }
             else
             {
