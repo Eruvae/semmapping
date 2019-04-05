@@ -1,6 +1,7 @@
 #ifndef BOXSYNCPOLICY_H
 #define BOXSYNCPOLICY_H
 
+#include <ros/message_traits.h>
 #include <message_filters/sync_policies/exact_time.h>
 
 #include <sensor_msgs/PointCloud2.h>
