@@ -17,6 +17,7 @@ namespace bgi = boost::geometry::index;
 typedef bg::model::d2::point_xy<double> point;
 typedef bg::model::box<point> box;
 typedef bg::model::polygon<point> polygon;
+typedef bg::model::multi_polygon<polygon> multi_polygon;
 typedef bg::model::ring<point> ring;
 
 inline geometry_msgs::Point boostToPointMsg(const point &p)

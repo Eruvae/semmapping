@@ -34,29 +34,12 @@
 #include <geometry_msgs/PolygonStamped.h>
 
 #include "boxsyncpolicy.h"
-#include "boost_geometry_msgs.h"
+#include "semanticmap.h"
 
 tf2_ros::Buffer tfBuffer;
 ros::Publisher detectedPgPub;
 
 using namespace semmapping;
-
-struct SemanticObject
-{
-  std::string name;
-  std::vector<polygon> shapes;
-  std::vector<int> shape_certainties;
-  int exist_certainty;
-  box bounding_box;
-  std::vector<std::string> tags;
-  std::vector<double> confidence;
-};
-
-typedef std::pair<box, size_t> rtree_entry;
-
-size_t next_index;
-bgi::rtree< rtree_entry, bgi::rstar<16> > objectRtree;
-std::map<size_t, SemanticObject> objectList;
 
 //volatile bool image_received = false;
 

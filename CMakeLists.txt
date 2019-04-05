@@ -145,7 +145,7 @@ add_definitions(
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 # add_executable(${PROJECT_NAME}_node src/semmapping_node.cpp)
-add_executable(mapping src/mapping.cpp)
+add_executable(mapping src/mapping.cpp src/semanticmap.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
