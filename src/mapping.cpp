@@ -359,7 +359,7 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
         pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, box);
         geometry_msgs::Polygon::Ptr res_pg = get2DBoxInMap(pclCloud, indices);
         geometry_msgs::PolygonStamped message;
-        message.polygon = std::move(*res_pg);
+        message.polygon = *res_pg;
         message.header.frame_id = "map";
         message.header.stamp = ros::Time::now();
         detectedPgPub.publish(message);
