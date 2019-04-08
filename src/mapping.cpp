@@ -38,8 +38,9 @@
 
 tf2_ros::Buffer tfBuffer;
 ros::Publisher detectedPgPub;
+ros::Publisher semanticMapPub;
 
-using namespace semmapping;
+semmapping::SemanticMap map;
 
 //volatile bool image_received = false;
 
@@ -362,6 +363,10 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
         message.header.frame_id = "map";
         message.header.stamp = ros::Time::now();
         detectedPgPub.publish(message);
+
+        map.addEvidence(box.Class, semmapping::polygonMsgToBoost(*res_pg));
+        hypermap_msgs::SemanticMap::Ptr map_msg = map.createMapMessage();
+        semanticMapPub.publish(map_msg);
     }
 }
 
@@ -399,6 +404,7 @@ int main(int argc, char **argv)
   //depthCloudFilter.registerCallback(receiveDepthCloud);
 
   detectedPgPub = nh.advertise<geometry_msgs::PolygonStamped>("detected_pg", 1);
+  semanticMapPub = nh.advertise<hypermap_msgs::SemanticMap>("semantic_map", 1);
 
   ros::spin();
 }

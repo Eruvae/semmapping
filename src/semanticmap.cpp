@@ -10,10 +10,15 @@ SemanticMap::SemanticMap()
 
 void SemanticMap::filterIntersectionThresh(std::set<size_t> &object_list, const polygon &pg)
 {
-    //std::remove_if(object_list.begin(), object_list.end(), [](size_t x){return ref_fit(pg, objectList[x].shape_union) < FIT_THRESH});
+    /*std::remove_if(object_list.begin(), object_list.end(),
+    [&, this](size_t x)
+    {
+        const SemanticObject &obj = objectList.at(x);
+        return ref_fit(pg, obj.shape_union) < FIT_THRESH;
+    });*/
     for (auto it = object_list.begin(); it != object_list.end(); )
     {
-        SemanticObject &obj = objectList[*it];
+        const SemanticObject &obj = objectList.at(*it);
         if (ref_fit(pg, obj.shape_union) < FIT_THRESH)
             object_list.erase(it);
         else
@@ -39,7 +44,7 @@ int SemanticMap::findFittingExistingShape(std::vector<UncertainShape> &shapes, c
 
 int SemanticMap::deleteLeastConsistentShape(SemanticObject &obj)
 {
-
+    // TODO
 }
 
 void SemanticMap::cleanupShapes(SemanticObject &obj)
@@ -71,18 +76,21 @@ void SemanticMap::updateUnion(SemanticObject &obj)
     multi_polygon un;
     for (auto i = obj.shapes.begin(); i != obj.shapes.end() - 1; i++)
     {
+        //if (i->certainty > MIN_CERTAINTY)
         bg::union_(un, i->shape, un);
     }
     obj.shape_union = un[0];
+    obj.bounding_box = bg::return_envelope<box>(obj.shape_union);
 }
 
 void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
 {
-    std::set<size_t> existingObjects = getObjectsInRange(pg);
+    std::set<size_t> existingObjects = getObjectsByNameInRange(name, pg);//getObjectsInRange(pg);
     filterIntersectionThresh(existingObjects, pg);
     if (existingObjects.empty())
     {
         // no object evidence exists yet, create new
+        addNewObject(name, pg);
     }
     else
     {
@@ -97,15 +105,32 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
                 if (obj.shapes.size() >= MAX_SHAPES)
                 {
                     // delete least consistent shape
+                    deleteLeastConsistentShape(obj);
                 }
-
+                obj.shapes.push_back({pg, 1});
             }
             else
             {
                 // add evidence to shape
+                // TODO: maybe update shape (union)
+                obj.shapes[fittingShapeInd].certainty++;
             }
+            obj.exist_certainty++;
         }
     }
+}
+
+void SemanticMap::addNewObject(const std::string name, const polygon &initial_shape)
+{
+    SemanticObject obj;
+    obj.name = name;
+    obj.shapes.push_back({initial_shape, 1});
+    obj.exist_certainty = 1;
+    updateUnion(obj);
+
+    objectList[next_index] = obj;
+    objectRtree.insert(std::make_pair(obj.bounding_box, next_index));
+    next_index++;
 }
 
 std::set<size_t> SemanticMap::getObjectsInRange(const polygon &pg)
@@ -120,6 +145,43 @@ std::set<size_t> SemanticMap::getObjectsInRange(const polygon &pg)
             result.insert(val.second);
     }
     return result;
+}
+
+std::set<size_t> SemanticMap::getObjectsByNameInRange(const std::string &name, const polygon &pg)
+{
+    std::vector<rtree_entry> result_obj;
+    std::set<size_t> result;
+    objectRtree.query(bgi::intersects(pg), std::back_inserter(result_obj));
+    for (rtree_entry val : result_obj)
+    {
+        const SemanticObject &foundObject = objectList[val.second];
+        if (foundObject.name == name && bg::intersects(pg, foundObject.shape_union))
+            result.insert(val.second);
+    }
+    return result;
+}
+
+hypermap_msgs::SemanticMap::Ptr SemanticMap::createMapMessage()
+{
+    hypermap_msgs::SemanticMap::Ptr map(new hypermap_msgs::SemanticMap);
+
+    for (auto val : objectList)
+    {
+        const SemanticObject &obj = val.second;
+        hypermap_msgs::SemanticObject obj_msg;
+        obj_msg.id = val.first;
+        obj_msg.name = obj.name;
+        obj_msg.shape = boostToPolygonMsg(obj.shape_union);
+        point centroid;
+        bg::centroid(obj.shape_union, centroid);
+        obj_msg.position = boostToPointMsg(centroid);
+
+        map->objects.push_back(std::move(obj_msg));
+    }
+
+    map->header.frame_id = "map";
+    map->header.stamp = ros::Time::now();
+    return map;
 }
 
 }
