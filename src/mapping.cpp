@@ -25,6 +25,7 @@
 #include <boost/geometry/index/rtree.hpp>
 
 #include <sensor_msgs/image_encodings.h>
+#include <image_geometry/pinhole_camera_model.h>
 
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/CameraInfo.h>
@@ -347,7 +348,7 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     return res;
 }
 
-void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_msgs::BoundingBoxes::ConstPtr &boxes)
+void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_msgs::BoundingBoxes::ConstPtr &boxes, const sensor_msgs::CameraInfo::ConstPtr &camInfo)
 {
     ROS_INFO_STREAM("Time stamps comp - boxes: " << boxes->header.stamp << "; Image header: " << boxes->image_header.stamp << "; cloud: " << cloud->header.stamp);
     tfBuffer.transform(*cloud, *cloud, "map");
@@ -368,6 +369,23 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
         hypermap_msgs::SemanticMap::Ptr map_msg = map.createMapMessage();
         semanticMapPub.publish(map_msg);
     }
+
+    image_geometry::PinholeCameraModel camModel;
+    camModel.fromCameraInfo(camInfo);
+
+    cv::Point2d leftP(0, 0);
+    cv::Point2d rightP(camModel.cameraInfo().width - 1, 0);
+    cv::Point2d upLeft(0, camModel.cameraInfo().height - 1);
+    cv::Point2d upRight(camModel.cameraInfo().width - 1, camModel.cameraInfo().height - 1);
+    cv::Point2d center(camModel.cameraInfo().width / 1, camModel.cameraInfo().height / 1);
+
+    cv::Point3d rayLeft = camModel.projectPixelTo3dRay(leftP);
+    cv::Point3d rayRight = camModel.projectPixelTo3dRay(rightP);
+    cv::Point3d rayUpLeft = camModel.projectPixelTo3dRay(upLeft);
+    cv::Point3d rayUpRight = camModel.projectPixelTo3dRay(upRight);
+    cv::Point3d rayCenter = camModel.projectPixelTo3dRay(center);
+
+    ROS_INFO_STREAM("Points: " << rayLeft << rayRight << rayUpLeft << rayUpRight << rayCenter);
 }
 
 int main(int argc, char **argv)
@@ -380,8 +398,9 @@ int main(int argc, char **argv)
   message_filters::Subscriber<sensor_msgs::PointCloud2> depthCloudSub(nh, "/sensorring_cam3d/depth/points", 1);
   tf2_ros::MessageFilter<sensor_msgs::PointCloud2> tfFilter(depthCloudSub, tfBuffer, "map", 10, nh);
   message_filters::Subscriber<darknet_ros_msgs::BoundingBoxes> boundingBoxSub(nh, "/darknet_ros/bounding_boxes", 1);
+  message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, "/sensorring_cam3d/info", 1);
 
-  message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfFilter, boundingBoxSub);
+  message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfFilter, boundingBoxSub, cameraInfoSub);
 
   sync.registerCallback(processBoxes);
 
