@@ -59,7 +59,7 @@ public:
   void addEvidence(const std::string &name, const polygon &pg);
 
   int deleteLeastConsistentShape(SemanticObject &obj);
-  void cleanupShapes(SemanticObject &obj);
+  //void cleanupShapes(SemanticObject &obj);
   void updateUnion(SemanticObject &obj);
   void filterIntersectionThresh(std::set<size_t> &object_list, const polygon &pg);
   int findFittingExistingShape(std::vector<UncertainShape> &shapes, const polygon &pg);
