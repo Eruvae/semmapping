@@ -348,6 +348,17 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     return res;
 }
 
+geometry_msgs::Vector3Stamped::Ptr toVectorMsg(const cv::Point3d &point, const image_geometry::PinholeCameraModel &cam)
+{
+    geometry_msgs::Vector3Stamped::Ptr vec(new geometry_msgs::Vector3Stamped);
+    vec->vector.x = point.x;
+    vec->vector.y = point.y;
+    vec->vector.z = point.z;
+    vec->header.frame_id = cam.tfFrame();
+    vec->header.stamp = cam.stamp();
+    return vec;
+}
+
 void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_msgs::BoundingBoxes::ConstPtr &boxes, const sensor_msgs::CameraInfo::ConstPtr &camInfo)
 {
     ROS_INFO_STREAM("Time stamps comp - boxes: " << boxes->header.stamp << "; Image header: " << boxes->image_header.stamp << "; cloud: " << cloud->header.stamp);
@@ -374,10 +385,10 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
     camModel.fromCameraInfo(camInfo);
 
     cv::Point2d leftP(0, 0);
-    cv::Point2d rightP(camModel.cameraInfo().width - 1, 0);
-    cv::Point2d upLeft(0, camModel.cameraInfo().height - 1);
-    cv::Point2d upRight(camModel.cameraInfo().width - 1, camModel.cameraInfo().height - 1);
-    cv::Point2d center(camModel.cameraInfo().width / 1, camModel.cameraInfo().height / 1);
+    cv::Point2d rightP(camModel.cameraInfo().width, 0);
+    cv::Point2d upLeft(0, camModel.cameraInfo().height);
+    cv::Point2d upRight(camModel.cameraInfo().width, camModel.cameraInfo().height);
+    cv::Point2d center(camModel.cameraInfo().width / 2, camModel.cameraInfo().height / 2);
 
     cv::Point3d rayLeft = camModel.projectPixelTo3dRay(leftP);
     cv::Point3d rayRight = camModel.projectPixelTo3dRay(rightP);
@@ -386,6 +397,20 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
     cv::Point3d rayCenter = camModel.projectPixelTo3dRay(center);
 
     ROS_INFO_STREAM("Points: " << rayLeft << rayRight << rayUpLeft << rayUpRight << rayCenter);
+    // Output: Points: [-0.60211, -0.802396, 1][0.599606, -0.802396, 1][-0.60211, 0.799892, 1][0.599606, 0.799892, 1][-0.00125179, -0.00125179, 1]
+
+    geometry_msgs::Vector3Stamped::Ptr vecLeft = toVectorMsg(rayLeft, camModel);
+    geometry_msgs::Vector3Stamped::Ptr vecRight = toVectorMsg(rayRight, camModel);
+
+    tfBuffer.transform(*vecLeft, *vecLeft, "map");
+    tfBuffer.transform(*vecRight, *vecRight, "map");
+
+    ROS_INFO_STREAM("Left global: " << vecLeft->vector.x << ", " << vecLeft->vector.y << ", " << vecLeft->vector.z);
+    ROS_INFO_STREAM("Right global: " << vecRight->vector.x << ", " << vecRight->vector.y << ", " << vecRight->vector.z);
+    /*
+     * [ INFO] [1554822042.743969288, 396.947000000]: Left global: -1.15433, 0.2034, 0.79532
+     * [ INFO] [1554822042.743990568, 396.947000000]: Right global: -0.367449, 1.11167, 0.795329
+    */
 }
 
 int main(int argc, char **argv)
@@ -398,7 +423,7 @@ int main(int argc, char **argv)
   message_filters::Subscriber<sensor_msgs::PointCloud2> depthCloudSub(nh, "/sensorring_cam3d/depth/points", 1);
   tf2_ros::MessageFilter<sensor_msgs::PointCloud2> tfFilter(depthCloudSub, tfBuffer, "map", 10, nh);
   message_filters::Subscriber<darknet_ros_msgs::BoundingBoxes> boundingBoxSub(nh, "/darknet_ros/bounding_boxes", 1);
-  message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, "/sensorring_cam3d/info", 1);
+  message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, "/sensorring_cam3d/depth/camera_info", 1);
 
   message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfFilter, boundingBoxSub, cameraInfoSub);
 
