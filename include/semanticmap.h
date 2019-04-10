@@ -15,18 +15,18 @@ const double MIN_FIT = 0.9; // minmal fit for shape to be considered same
 struct UncertainShape
 {
     polygon shape;
-    int certainty;
+    double certainty;
 };
 
 struct SemanticObject
 {
   std::string name;
   std::vector<UncertainShape> shapes;
-  int exist_certainty;
+  double exist_certainty;
   polygon shape_union;
   box bounding_box;
-  std::vector<std::string> tags;
-  std::vector<double> confidence;
+  //std::vector<std::string> tags;
+  //std::vector<double> confidence;
 };
 
 class SemanticMap
@@ -57,13 +57,16 @@ public:
   SemanticMap();
 
   void addEvidence(const std::string &name, const polygon &pg);
+  void removeEvidence(const polygon &visibilityArea);
 
-  int deleteLeastConsistentShape(SemanticObject &obj);
+  //int deleteLeastConsistentShape(size_t id);
   //void cleanupShapes(SemanticObject &obj);
-  void updateUnion(SemanticObject &obj);
+  void updateUnion(size_t id);
   void filterIntersectionThresh(std::set<size_t> &object_list, const polygon &pg);
   int findFittingExistingShape(std::vector<UncertainShape> &shapes, const polygon &pg);
   void addNewObject(const std::string name, const polygon &initial_shape);
+  void removeObject(size_t id);
+  size_t combineObjects(std::set<size_t> objects);
   std::set<size_t> getObjectsInRange(const polygon &pg);
   std::set<size_t> getObjectsByNameInRange(const std::string &name, const polygon &pg);
 

@@ -48,10 +48,10 @@ int SemanticMap::findFittingExistingShape(std::vector<UncertainShape> &shapes, c
     return index;
 }
 
-int SemanticMap::deleteLeastConsistentShape(SemanticObject &obj)
+/*int SemanticMap::deleteLeastConsistentShape(size_t id)
 {
     // TODO
-}
+}*/
 
 /*void SemanticMap::cleanupShapes(SemanticObject &obj)
 {
@@ -77,8 +77,9 @@ int SemanticMap::deleteLeastConsistentShape(SemanticObject &obj)
     updateUnion(obj);
 }*/
 
-void SemanticMap::updateUnion(SemanticObject &obj)
+void SemanticMap::updateUnion(size_t id)
 {
+    SemanticObject &obj = objectList.at(id);
     ROS_INFO("Calculating union");
     if (obj.shapes.size() < 1)
     {
@@ -96,16 +97,34 @@ void SemanticMap::updateUnion(SemanticObject &obj)
         un = std::move(res);
     }
     ROS_INFO_STREAM("Union size: " << un.size());
-    /*if (un.size() < 1)
-    {
-        ROS_ERROR("Union is empty");
-        return;
-    }*/
     ROS_INFO_STREAM("Union: " << bg::wkt(un));
     obj.shape_union = un[0];
 
-    ROS_INFO("Calculating bounding box");
+    ROS_INFO("Updating bounding box");
+    objectRtree.remove(std::make_pair(obj.bounding_box, id));
+    /*std::remove_if(objectRtree.begin(), objectRtree.end(), [id](rtree_entry &ent) // works only with boost >= 1.59
+    {
+        return ent.second == id;
+    });*/
     obj.bounding_box = bg::return_envelope<box>(obj.shape_union);
+    objectRtree.insert(std::make_pair(obj.bounding_box, id));
+}
+
+size_t SemanticMap::combineObjects(std::set<size_t> objects)
+{
+    auto it = objects.begin();
+    size_t combinedId = *it;
+    it++;
+    SemanticObject &combinedObj = objectList.at(combinedId);
+    for (; it != objects.end(); it++)
+    {
+        SemanticObject &toMerge = objectList.at(*it);
+        combinedObj.shapes.insert(combinedObj.shapes.end(), toMerge.shapes.begin(), toMerge.shapes.end());
+        combinedObj.exist_certainty += toMerge.exist_certainty;
+        removeObject(*it);
+    }
+    updateUnion(combinedId);
+    return combinedId;
 }
 
 void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
@@ -122,41 +141,79 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
     else
     {
         ROS_INFO_STREAM("Number of fitting objects: " << existingObjects.size());
-        // add evidence to each fitting object
-        for (size_t id : existingObjects)
+        size_t objectId = *existingObjects.begin();
+        // if more than one object fits, combine objects
+        if (existingObjects.size() > 1)
         {
-            SemanticObject &obj = objectList.at(id);
-            int fittingShapeInd = findFittingExistingShape(obj.shapes, pg);
-            if (fittingShapeInd < 0)
+            objectId = combineObjects(existingObjects);
+        }
+        // add evidence to object
+        //for (size_t objectId : existingObjects)
+        //{
+        SemanticObject &obj = objectList.at(objectId);
+        int fittingShapeInd = findFittingExistingShape(obj.shapes, pg);
+        if (fittingShapeInd < 0)
+        {
+            ROS_INFO("No fitting shape found, creating new");
+            // not fitting shape found, create new shape
+            /*if (obj.shapes.size() >= MAX_SHAPES)
             {
-                ROS_INFO("No fitting shape found, creating new");
-                // not fitting shape found, create new shape
-                if (obj.shapes.size() >= MAX_SHAPES)
+                // delete least consistent shape
+                deleteLeastConsistentShape(objectId);
+            }*/
+            obj.shapes.push_back({pg, 1});
+        }
+        else
+        {
+            ROS_INFO_STREAM("Fitting shape found: " << fittingShapeInd);
+            // add evidence to shape
+            // TODO: maybe update shape (union)
+            multi_polygon un;
+            bg::union_(obj.shapes[fittingShapeInd].shape, pg, un);
+            obj.shapes[fittingShapeInd].shape = un[0];
+            //ROS_INFO_STREAM("Fitting shape: " << bg::wkt(obj.shapes[fittingShapeInd].shape));
+            //ROS_INFO_STREAM("Certainty: " << obj.shapes[fittingShapeInd].certainty);
+            obj.shapes[fittingShapeInd].certainty++;
+            //ROS_INFO_STREAM("Certainty increased: " << obj.shapes[fittingShapeInd].certainty);
+        }
+        updateUnion(objectId);
+        obj.exist_certainty++;
+        //ROS_INFO_STREAM("Exist certainty increased: " << obj.exist_certainty);
+        //}
+    }
+}
+
+void SemanticMap::removeEvidence(const polygon &visibilityArea)
+{
+    std::set<size_t> existingObjects = getObjectsInRange(visibilityArea);
+    for (size_t id : existingObjects)
+    {
+        SemanticObject &obj = objectList.at(id);
+        if (bg::within(obj.shape_union, visibilityArea)) // whole union is visible
+        {
+            obj.exist_certainty -= 0.1;
+
+            if (obj.exist_certainty < -10)
+            {
+                removeObject(id);
+            }
+        }
+        else
+        {
+            for (auto it = obj.shapes.begin(); it != obj.shapes.end();)
+            {
+                UncertainShape &shape = *it;
+                if (bg::within(shape.shape, visibilityArea)) // whole union is visible
                 {
-                    // delete least consistent shape
-                    deleteLeastConsistentShape(obj);
+                    shape.certainty -= 0.1;
+                    if (shape.certainty < -10)
+                    {
+                        it = obj.shapes.erase(it);
+                        continue;
+                    }
                 }
-                obj.shapes.push_back({pg, 1});
-                /*std::remove_if(objectRtree.begin(), objectRtree.end(), [id](rtree_entry &ent)
-                {
-                    return ent.second == id;
-                });*/
-                objectRtree.remove(std::make_pair(obj.bounding_box, id));
-                updateUnion(obj);
-                objectRtree.insert(std::make_pair(obj.bounding_box, id));
+                it++;
             }
-            else
-            {
-                ROS_INFO_STREAM("Fitting shape found: " << fittingShapeInd);
-                // add evidence to shape
-                // TODO: maybe update shape (union)
-                //ROS_INFO_STREAM("Fitting shape: " << bg::wkt(obj.shapes[fittingShapeInd].shape));
-                //ROS_INFO_STREAM("Certainty: " << obj.shapes[fittingShapeInd].certainty);
-                obj.shapes[fittingShapeInd].certainty++;
-                //ROS_INFO_STREAM("Certainty increased: " << obj.shapes[fittingShapeInd].certainty);
-            }
-            obj.exist_certainty++;
-            //ROS_INFO_STREAM("Exist certainty increased: " << obj.exist_certainty);
         }
     }
 }
@@ -168,7 +225,8 @@ void SemanticMap::addNewObject(const std::string name, const polygon &initial_sh
     obj.name = name;
     obj.shapes.push_back({initial_shape, 1});
     obj.exist_certainty = 1;
-    updateUnion(obj);
+    obj.shape_union = initial_shape;
+    obj.bounding_box = bg::return_envelope<box>(obj.shape_union);
 
     ROS_INFO("Adding object to map");
     objectList[next_index] = obj;
@@ -179,6 +237,13 @@ void SemanticMap::addNewObject(const std::string name, const polygon &initial_sh
     //objectRtree.insert(std::make_pair<box, size_t>(obj.bounding_box, next_index));
     ROS_INFO_STREAM("Succesfully added, size: " << objectRtree.size());
     next_index++;
+}
+
+void SemanticMap::removeObject(size_t id)
+{
+    SemanticObject &obj = objectList.at(id);
+    objectRtree.remove(std::make_pair(obj.bounding_box, id));
+    objectList.erase(id);
 }
 
 std::set<size_t> SemanticMap::getObjectsInRange(const polygon &pg)

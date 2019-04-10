@@ -360,23 +360,17 @@ geometry_msgs::Vector3Stamped::Ptr toVectorMsg(const cv::Point3d &point, const i
     return vec;
 }
 
-geometry_msgs::Point32::Ptr calculateXYPlaneIntersection(const geometry_msgs::Vector3 &orig, const geometry_msgs::Vector3 &dir)
+inline semmapping::point calculateXYPlaneIntersection(const geometry_msgs::Vector3 &orig, const geometry_msgs::Vector3 &dir)
 {
-    geometry_msgs::Point32::Ptr res(new geometry_msgs::Point32);
     double factor = - orig.z / dir.z;
-    res->x = orig.x + factor * dir.x;
-    res->y = orig.y + factor * dir.y;
-    return res;
+    return semmapping::point(orig.x + factor * dir.x, orig.y + factor * dir.y);
 }
 
-geometry_msgs::Point32::Ptr calculateVisibilityEndPoint(const geometry_msgs::Point32 &startP, const geometry_msgs::Vector3 &dir, double dist = 3)
+inline semmapping::point calculateVisibilityEndPoint(const semmapping::point &startP, const geometry_msgs::Vector3 &dir, double dist = 3)
 {
-    geometry_msgs::Point32::Ptr res(new geometry_msgs::Point32);
     double dir_len_plane = std::sqrt(dir.x * dir.x + dir.y * dir.y);
     double factor = dist / dir_len_plane;
-    res->x = startP.x + factor * dir.x;
-    res->y = startP.y + factor * dir.y;
-    return res;
+    return semmapping::point(startP.x() + factor * dir.x, startP.y() + factor * dir.y);
 }
 
 void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_msgs::BoundingBoxes::ConstPtr &boxes)
@@ -391,6 +385,8 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
         //std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
         pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, box);
         semmapping::polygon res_pg = get2DBoxInMap(pclCloud, indices);
+
+        // DEBUG: publish detected polygon
         geometry_msgs::PolygonStamped message;
         message.polygon = semmapping::boostToPolygonMsg(res_pg);
         message.header.frame_id = "map";
@@ -408,36 +404,36 @@ void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo)
     image_geometry::PinholeCameraModel camModel;
     camModel.fromCameraInfo(camInfo);
 
-    cv::Point2d leftP(0, 0);
-    cv::Point2d rightP(camModel.cameraInfo().width, 0);
+    //cv::Point2d leftP(0, 0);
+    //cv::Point2d rightP(camModel.cameraInfo().width, 0);
     cv::Point2d upLeft(0, camModel.cameraInfo().height);
     cv::Point2d upRight(camModel.cameraInfo().width, camModel.cameraInfo().height);
-    cv::Point2d center(camModel.cameraInfo().width / 2, camModel.cameraInfo().height / 2);
+    //cv::Point2d center(camModel.cameraInfo().width / 2, camModel.cameraInfo().height / 2);
 
-    cv::Point3d rayLeft = camModel.projectPixelTo3dRay(leftP);
-    cv::Point3d rayRight = camModel.projectPixelTo3dRay(rightP);
+    //cv::Point3d rayLeft = camModel.projectPixelTo3dRay(leftP);
+    //cv::Point3d rayRight = camModel.projectPixelTo3dRay(rightP);
     cv::Point3d rayUpLeft = camModel.projectPixelTo3dRay(upLeft);
     cv::Point3d rayUpRight = camModel.projectPixelTo3dRay(upRight);
-    cv::Point3d rayCenter = camModel.projectPixelTo3dRay(center);
+    //cv::Point3d rayCenter = camModel.projectPixelTo3dRay(center);
 
-    ROS_INFO_STREAM("Points: " << rayLeft << rayRight << rayUpLeft << rayUpRight << rayCenter);
+    //ROS_INFO_STREAM("Points: " << rayLeft << rayRight << rayUpLeft << rayUpRight << rayCenter);
     // Output: Points: [-0.60211, -0.802396, 1][0.599606, -0.802396, 1][-0.60211, 0.799892, 1][0.599606, 0.799892, 1][-0.00125179, -0.00125179, 1]
 
-    geometry_msgs::Vector3Stamped::Ptr vecLeft = toVectorMsg(rayLeft, camModel);
-    geometry_msgs::Vector3Stamped::Ptr vecRight = toVectorMsg(rayRight, camModel);
+    //geometry_msgs::Vector3Stamped::Ptr vecLeft = toVectorMsg(rayLeft, camModel);
+    //geometry_msgs::Vector3Stamped::Ptr vecRight = toVectorMsg(rayRight, camModel);
     geometry_msgs::Vector3Stamped::Ptr vecUpLeft = toVectorMsg(rayUpLeft, camModel);
     geometry_msgs::Vector3Stamped::Ptr vecUpRight = toVectorMsg(rayUpRight, camModel);
 
 
-    tfBuffer.transform(*vecLeft, *vecLeft, "map");
-    tfBuffer.transform(*vecRight, *vecRight, "map");
+    //tfBuffer.transform(*vecLeft, *vecLeft, "map");
+    //tfBuffer.transform(*vecRight, *vecRight, "map");
     tfBuffer.transform(*vecUpLeft, *vecUpLeft, "map");
     tfBuffer.transform(*vecUpRight, *vecUpRight, "map");
 
-    ROS_INFO_STREAM("Left global: " << vecLeft->vector.x << ", " << vecLeft->vector.y << ", " << vecLeft->vector.z);
-    ROS_INFO_STREAM("Right global: " << vecRight->vector.x << ", " << vecRight->vector.y << ", " << vecRight->vector.z);
-    ROS_INFO_STREAM("UpLeft global: " << vecUpLeft->vector.x << ", " << vecUpLeft->vector.y << ", " << vecUpLeft->vector.z);
-    ROS_INFO_STREAM("UpRight global: " << vecUpRight->vector.x << ", " << vecUpRight->vector.y << ", " << vecUpRight->vector.z);
+    //ROS_INFO_STREAM("Left global: " << vecLeft->vector.x << ", " << vecLeft->vector.y << ", " << vecLeft->vector.z);
+    //ROS_INFO_STREAM("Right global: " << vecRight->vector.x << ", " << vecRight->vector.y << ", " << vecRight->vector.z);
+    //ROS_INFO_STREAM("UpLeft global: " << vecUpLeft->vector.x << ", " << vecUpLeft->vector.y << ", " << vecUpLeft->vector.z);
+    //ROS_INFO_STREAM("UpRight global: " << vecUpRight->vector.x << ", " << vecUpRight->vector.y << ", " << vecUpRight->vector.z);
 
     geometry_msgs::TransformStamped camPos = tfBuffer.lookupTransform("map", camModel.tfFrame(), camModel.stamp(), ros::Duration(0));
     ROS_INFO_STREAM("Cam pos: " << camPos.transform.translation.x << ", " << camPos.transform.translation.y << ", " << camPos.transform.translation.z);
@@ -449,20 +445,26 @@ void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo)
     [ INFO] [1554890337.562140750, 36.131000000]: Cam pos: -0.0337588, 0.120642, 1.20268
      */
 
-    geometry_msgs::Point32::Ptr p1 = calculateXYPlaneIntersection(camPos.transform.translation, vecUpLeft->vector);
-    geometry_msgs::Point32::Ptr p2 = calculateXYPlaneIntersection(camPos.transform.translation, vecUpRight->vector);
-    geometry_msgs::Point32::Ptr p3 = calculateVisibilityEndPoint(*p2, vecUpRight->vector);
-    geometry_msgs::Point32::Ptr p4 = calculateVisibilityEndPoint(*p1, vecUpLeft->vector);
+    semmapping::point p1 = calculateXYPlaneIntersection(camPos.transform.translation, vecUpLeft->vector);
+    semmapping::point p2 = calculateXYPlaneIntersection(camPos.transform.translation, vecUpRight->vector);
+    semmapping::point p3 = calculateVisibilityEndPoint(p2, vecUpRight->vector);
+    semmapping::point p4 = calculateVisibilityEndPoint(p1, vecUpLeft->vector);
 
-    geometry_msgs::PolygonStamped obPg;
-    obPg.polygon.points.push_back(*p1);
-    obPg.polygon.points.push_back(*p2);
-    obPg.polygon.points.push_back(*p3);
-    obPg.polygon.points.push_back(*p4);
-    obPg.header.frame_id = "map";
-    obPg.header.stamp = camModel.stamp();
+    semmapping::polygon obPg;
+    semmapping::bg::append(obPg.outer(), p1);
+    semmapping::bg::append(obPg.outer(), p2);
+    semmapping::bg::append(obPg.outer(), p3);
+    semmapping::bg::append(obPg.outer(), p4);
+    semmapping::bg::correct(obPg);
 
-    observationPgPub.publish(obPg);
+    // DEBUG: publish observation area
+    geometry_msgs::PolygonStamped message;
+    message.polygon = semmapping::boostToPolygonMsg(obPg);
+    message.header.frame_id = "map";
+    message.header.stamp = camModel.stamp();
+    observationPgPub.publish(message);
+
+    map.removeEvidence(obPg);
 }
 
 int main(int argc, char **argv)
