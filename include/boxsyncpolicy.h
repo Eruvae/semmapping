@@ -6,7 +6,7 @@
 
 #include <sensor_msgs/PointCloud2.h>
 #include <darknet_ros_msgs/BoundingBoxes.h>
-#include <sensor_msgs/CameraInfo.h>
+//#include <sensor_msgs/CameraInfo.h>
 
 namespace ros
 {
@@ -28,6 +28,6 @@ namespace ros
 
 }
 
-typedef message_filters::sync_policies::ExactTime<sensor_msgs::PointCloud2, darknet_ros_msgs::BoundingBoxes, sensor_msgs::CameraInfo> BoxSyncPolicy;
+typedef message_filters::sync_policies::ExactTime<sensor_msgs::PointCloud2, darknet_ros_msgs::BoundingBoxes> BoxSyncPolicy;
 
 #endif // BOXSYNCPOLICY_H

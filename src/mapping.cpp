@@ -36,9 +36,11 @@
 
 #include "boxsyncpolicy.h"
 #include "semanticmap.h"
+#include "boost_geometry_msgs.h"
 
 tf2_ros::Buffer tfBuffer;
 ros::Publisher detectedPgPub;
+ros::Publisher observationPgPub;
 ros::Publisher semanticMapPub;
 
 semmapping::SemanticMap map;
@@ -243,30 +245,29 @@ void transformBoxToMap()
     tf2::Vector3 z_dist = depth * z_dir;
 }*/
 
-geometry_msgs::Polygon::Ptr get2DBoxInMap(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, pcl::PointIndices::Ptr indices)
+semmapping::polygon get2DBoxInMap(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, pcl::PointIndices::Ptr indices)
 {
-    geometry_msgs::Point32 min;
-    geometry_msgs::Point32 maxmin;
-    geometry_msgs::Point32 max;
-    geometry_msgs::Point32 minmax;
-    min.x = DBL_MAX; min.y = DBL_MAX;
-    max.x = -DBL_MAX; max.y = -DBL_MAX;
+    semmapping::point min(DBL_MAX, DBL_MAX);
+    semmapping::point maxmin;
+    semmapping::point max(-DBL_MAX, -DBL_MAX);
+    semmapping::point minmax;
 
     for (int index : indices->indices)
     {
         const pcl::PointXYZ &p = (*cloud)[index];
-        if (p.x < min.x) min.x = p.x;
-        if (p.y < min.y) min.y = p.y;
-        if (p.x > max.x) max.x = p.x;
-        if (p.y > max.y) max.y = p.y;
+        if (p.x < min.x()) min.x(p.x);
+        if (p.y < min.y()) min.y(p.y);
+        if (p.x > max.x()) max.x(p.x);
+        if (p.y > max.y()) max.y(p.y);
     }
-    maxmin.x = max.x; maxmin.y = min.y;
-    minmax.x = min.x; minmax.y = max.y;
-    geometry_msgs::Polygon::Ptr pg(new geometry_msgs::Polygon);
-    pg->points.push_back(min);
-    pg->points.push_back(maxmin);
-    pg->points.push_back(max);
-    pg->points.push_back(minmax);
+    maxmin.x(max.x()); maxmin.y(min.y());
+    minmax.x(min.x()); minmax.y(max.y());
+    semmapping::polygon pg;
+    semmapping::bg::append(pg.outer(), min);
+    semmapping::bg::append(pg.outer(), maxmin);
+    semmapping::bg::append(pg.outer(), max);
+    semmapping::bg::append(pg.outer(), minmax);
+    semmapping::bg::correct(pg);
     return pg;
 }
 
@@ -359,9 +360,29 @@ geometry_msgs::Vector3Stamped::Ptr toVectorMsg(const cv::Point3d &point, const i
     return vec;
 }
 
-void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_msgs::BoundingBoxes::ConstPtr &boxes, const sensor_msgs::CameraInfo::ConstPtr &camInfo)
+geometry_msgs::Point32::Ptr calculateXYPlaneIntersection(const geometry_msgs::Vector3 &orig, const geometry_msgs::Vector3 &dir)
 {
-    ROS_INFO_STREAM("Time stamps comp - boxes: " << boxes->header.stamp << "; Image header: " << boxes->image_header.stamp << "; cloud: " << cloud->header.stamp);
+    geometry_msgs::Point32::Ptr res(new geometry_msgs::Point32);
+    double factor = - orig.z / dir.z;
+    res->x = orig.x + factor * dir.x;
+    res->y = orig.y + factor * dir.y;
+    return res;
+}
+
+geometry_msgs::Point32::Ptr calculateVisibilityEndPoint(const geometry_msgs::Point32 &startP, const geometry_msgs::Vector3 &dir, double dist = 3)
+{
+    geometry_msgs::Point32::Ptr res(new geometry_msgs::Point32);
+    double dir_len_plane = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+    double factor = dist / dir_len_plane;
+    res->x = startP.x + factor * dir.x;
+    res->y = startP.y + factor * dir.y;
+    return res;
+}
+
+void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_msgs::BoundingBoxes::ConstPtr &boxes)
+{
+    //ROS_INFO_STREAM("Time stamps comp - boxes: " << boxes->header.stamp << "; Image header: " << boxes->image_header.stamp << "; cloud: " << cloud->header.stamp);
+    //ROS_INFO_STREAM("Frames: " << boxes->image_header.frame_id << "; " << cloud->header.frame_id);
     tfBuffer.transform(*cloud, *cloud, "map");
     pcl::PointCloud<pcl::PointXYZ>::Ptr pclCloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(*cloud, *pclCloud);
@@ -369,18 +390,21 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
     {
         //std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
         pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, box);
-        geometry_msgs::Polygon::Ptr res_pg = get2DBoxInMap(pclCloud, indices);
-        /*geometry_msgs::PolygonStamped message;
-        message.polygon = *res_pg;
+        semmapping::polygon res_pg = get2DBoxInMap(pclCloud, indices);
+        geometry_msgs::PolygonStamped message;
+        message.polygon = semmapping::boostToPolygonMsg(res_pg);
         message.header.frame_id = "map";
-        message.header.stamp = ros::Time::now();
-        detectedPgPub.publish(message);*/
+        message.header.stamp = cloud->header.stamp;
+        detectedPgPub.publish(message);
 
-        map.addEvidence(box.Class, semmapping::polygonMsgToBoost(*res_pg));
+        map.addEvidence(box.Class, res_pg);
         hypermap_msgs::SemanticMap::Ptr map_msg = map.createMapMessage();
         semanticMapPub.publish(map_msg);
     }
+}
 
+void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo)
+{
     image_geometry::PinholeCameraModel camModel;
     camModel.fromCameraInfo(camInfo);
 
@@ -401,16 +425,44 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
 
     geometry_msgs::Vector3Stamped::Ptr vecLeft = toVectorMsg(rayLeft, camModel);
     geometry_msgs::Vector3Stamped::Ptr vecRight = toVectorMsg(rayRight, camModel);
+    geometry_msgs::Vector3Stamped::Ptr vecUpLeft = toVectorMsg(rayUpLeft, camModel);
+    geometry_msgs::Vector3Stamped::Ptr vecUpRight = toVectorMsg(rayUpRight, camModel);
+
 
     tfBuffer.transform(*vecLeft, *vecLeft, "map");
     tfBuffer.transform(*vecRight, *vecRight, "map");
+    tfBuffer.transform(*vecUpLeft, *vecUpLeft, "map");
+    tfBuffer.transform(*vecUpRight, *vecUpRight, "map");
 
     ROS_INFO_STREAM("Left global: " << vecLeft->vector.x << ", " << vecLeft->vector.y << ", " << vecLeft->vector.z);
     ROS_INFO_STREAM("Right global: " << vecRight->vector.x << ", " << vecRight->vector.y << ", " << vecRight->vector.z);
+    ROS_INFO_STREAM("UpLeft global: " << vecUpLeft->vector.x << ", " << vecUpLeft->vector.y << ", " << vecUpLeft->vector.z);
+    ROS_INFO_STREAM("UpRight global: " << vecUpRight->vector.x << ", " << vecUpRight->vector.y << ", " << vecUpRight->vector.z);
+
+    geometry_msgs::TransformStamped camPos = tfBuffer.lookupTransform("map", camModel.tfFrame(), camModel.stamp(), ros::Duration(0));
+    ROS_INFO_STREAM("Cam pos: " << camPos.transform.translation.x << ", " << camPos.transform.translation.y << ", " << camPos.transform.translation.z);
     /*
-     * [ INFO] [1554822042.743969288, 396.947000000]: Left global: -1.15433, 0.2034, 0.79532
-     * [ INFO] [1554822042.743990568, 396.947000000]: Right global: -0.367449, 1.11167, 0.795329
-    */
+    [ INFO] [1554890337.562063526, 36.131000000]: Left global: -1.12738, 0.303181, 0.802171
+    [ INFO] [1554890337.562079055, 36.131000000]: Right global: -0.261476, 1.13645, 0.802171
+    [ INFO] [1554890337.562095215, 36.131000000]: UpLeft global: -1.12713, 0.302922, -0.800116
+    [ INFO] [1554890337.562110103, 36.131000000]: UpRight global: -0.261227, 1.13619, -0.800116
+    [ INFO] [1554890337.562140750, 36.131000000]: Cam pos: -0.0337588, 0.120642, 1.20268
+     */
+
+    geometry_msgs::Point32::Ptr p1 = calculateXYPlaneIntersection(camPos.transform.translation, vecUpLeft->vector);
+    geometry_msgs::Point32::Ptr p2 = calculateXYPlaneIntersection(camPos.transform.translation, vecUpRight->vector);
+    geometry_msgs::Point32::Ptr p3 = calculateVisibilityEndPoint(*p2, vecUpRight->vector);
+    geometry_msgs::Point32::Ptr p4 = calculateVisibilityEndPoint(*p1, vecUpLeft->vector);
+
+    geometry_msgs::PolygonStamped obPg;
+    obPg.polygon.points.push_back(*p1);
+    obPg.polygon.points.push_back(*p2);
+    obPg.polygon.points.push_back(*p3);
+    obPg.polygon.points.push_back(*p4);
+    obPg.header.frame_id = "map";
+    obPg.header.stamp = camModel.stamp();
+
+    observationPgPub.publish(obPg);
 }
 
 int main(int argc, char **argv)
@@ -421,13 +473,16 @@ int main(int argc, char **argv)
   tf2_ros::TransformListener tfListener(tfBuffer);
 
   message_filters::Subscriber<sensor_msgs::PointCloud2> depthCloudSub(nh, "/sensorring_cam3d/depth/points", 1);
-  tf2_ros::MessageFilter<sensor_msgs::PointCloud2> tfFilter(depthCloudSub, tfBuffer, "map", 10, nh);
+  tf2_ros::MessageFilter<sensor_msgs::PointCloud2> tfCloudFilter(depthCloudSub, tfBuffer, "map", 10, nh);
   message_filters::Subscriber<darknet_ros_msgs::BoundingBoxes> boundingBoxSub(nh, "/darknet_ros/bounding_boxes", 1);
-  message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, "/sensorring_cam3d/depth/camera_info", 1);
 
-  message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfFilter, boundingBoxSub, cameraInfoSub);
+  message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfCloudFilter, boundingBoxSub);
+
+  message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, "/sensorring_cam3d/depth/camera_info", 1);
+  tf2_ros::MessageFilter<sensor_msgs::CameraInfo> tfCamFilter(cameraInfoSub, tfBuffer, "map", 10, nh);
 
   sync.registerCallback(processBoxes);
+  tfCamFilter.registerCallback(removeMissing);
 
 
   //tfFilter.registerCallback(processBoxes);
@@ -448,6 +503,7 @@ int main(int argc, char **argv)
   //depthCloudFilter.registerCallback(receiveDepthCloud);
 
   detectedPgPub = nh.advertise<geometry_msgs::PolygonStamped>("detected_pg", 1);
+  observationPgPub = nh.advertise<geometry_msgs::PolygonStamped>("observation_pg", 1);
   semanticMapPub = nh.advertise<hypermap_msgs::SemanticMap>("semantic_map", 1);
 
   ros::spin();

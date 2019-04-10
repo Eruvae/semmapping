@@ -20,6 +20,9 @@ typedef bg::model::polygon<point> polygon;
 typedef bg::model::multi_polygon<polygon> multi_polygon;
 typedef bg::model::ring<point> ring;
 
+typedef boost::shared_ptr<polygon> polygon_ptr;
+typedef boost::shared_ptr<polygon const> polygon_const_ptr;
+
 inline geometry_msgs::Point boostToPointMsg(const point &p)
 {
     geometry_msgs::Point pm;
