@@ -9,6 +9,9 @@
 #include <pcl/search/kdtree.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/segmentation/region_growing.h>
+#include <pcl/filters/project_inliers.h>
+#include <pcl/ModelCoefficients.h>
+#include <pcl/surface/concave_hull.h>
 //#include <pcl/visualization/cloud_viewer.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
@@ -271,6 +274,33 @@ semmapping::polygon get2DBoxInMap(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud
     return pg;
 }
 
+semmapping::polygon getPolygonInMap(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, pcl::PointIndices::Ptr indices)
+{
+    // Create a set of planar coefficients with X=Y=0,Z=1 (XY-plane)
+    pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients ());
+    coefficients->values.resize (4);
+    coefficients->values[0] = coefficients->values[1] = 0;
+    coefficients->values[2] = 1.0;
+    coefficients->values[3] = 0;
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_projected (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::ProjectInliers<pcl::PointXYZ> proj;
+    proj.setModelType (pcl::SACMODEL_PLANE);
+    proj.setModelCoefficients (coefficients);
+    proj.setInputCloud (cloud);
+    proj.setIndices(indices);
+    proj.filter (*cloud_projected);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_hull (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::ConcaveHull<pcl::PointXYZ> chull;
+    chull.setInputCloud (cloud_projected);
+    chull.setAlpha (0.1);
+    chull.setDimension(2);
+    chull.reconstruct (*cloud_hull);
+
+    return semmapping::pclToBoost(*cloud_hull);
+}
+
 pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const darknet_ros_msgs::BoundingBox &box)
 {
     /*pcl::PointCloud<pcl::PointXYZ>::Ptr object(new pcl::PointCloud<pcl::PointXYZ>);
@@ -384,7 +414,7 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
     {
         //std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
         pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, box);
-        semmapping::polygon res_pg = get2DBoxInMap(pclCloud, indices);
+        semmapping::polygon res_pg = getPolygonInMap(pclCloud, indices); //get2DBoxInMap(pclCloud, indices);
 
         // DEBUG: publish detected polygon
         geometry_msgs::PolygonStamped message;

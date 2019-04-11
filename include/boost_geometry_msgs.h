@@ -4,6 +4,9 @@
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point_xy.hpp>
 
+#include <pcl/point_types.h>
+#include <pcl/point_cloud.h>
+
 #include "geometry_msgs/Point.h"
 #include "geometry_msgs/Polygon.h"
 
@@ -71,6 +74,22 @@ inline polygon polygonMsgToBoost(const geometry_msgs::Polygon &pgm)
     bg::correct(pg);
     return pg;
 }
+
+inline point pclToBoost(const pcl::PointXYZ &p)
+{
+    return point(p.x, p.y);
+}
+
+inline polygon pclToBoost(const pcl::PointCloud<pcl::PointXYZ> &pc)
+{
+    polygon pg;
+    for (const pcl::PointXYZ &p : pc)
+        bg::append(pg.outer(), pclToBoost(p));
+
+    bg::correct(pg);
+    return pg;
+}
+
 
 }
 
