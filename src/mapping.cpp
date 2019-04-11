@@ -12,6 +12,7 @@
 #include <pcl/filters/project_inliers.h>
 #include <pcl/ModelCoefficients.h>
 #include <pcl/surface/concave_hull.h>
+#include <pcl/surface/convex_hull.h>
 //#include <pcl/visualization/cloud_viewer.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
@@ -292,11 +293,13 @@ semmapping::polygon getPolygonInMap(pcl::PointCloud<pcl::PointXYZ>::ConstPtr clo
     proj.filter (*cloud_projected);
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_hull (new pcl::PointCloud<pcl::PointXYZ>);
-    pcl::ConcaveHull<pcl::PointXYZ> chull;
+    pcl::ConvexHull<pcl::PointXYZ> chull;
     chull.setInputCloud (cloud_projected);
-    chull.setAlpha (0.1);
+    //chull.setAlpha (10);
     chull.setDimension(2);
     chull.reconstruct (*cloud_hull);
+
+    ROS_INFO_STREAM("Polygon found, points: " << cloud_hull->size());
 
     return semmapping::pclToBoost(*cloud_hull);
 }
@@ -414,7 +417,7 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
     {
         //std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
         pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, box);
-        semmapping::polygon res_pg = getPolygonInMap(pclCloud, indices); //get2DBoxInMap(pclCloud, indices);
+        semmapping::polygon res_pg = get2DBoxInMap(pclCloud, indices); // getPolygonInMap(pclCloud, indices);
 
         // DEBUG: publish detected polygon
         geometry_msgs::PolygonStamped message;

@@ -97,10 +97,10 @@ void SemanticMap::updateUnion(size_t id)
         un = std::move(res);
     }
     ROS_INFO_STREAM("Union size: " << un.size());
-    ROS_INFO_STREAM("Union: " << bg::wkt(un));
+    //ROS_INFO_STREAM("Union: " << bg::wkt(un));
     obj.shape_union = un[0];
 
-    ROS_INFO("Updating bounding box");
+    //ROS_INFO("Updating bounding box");
     objectRtree.remove(std::make_pair(obj.bounding_box, id));
     /*std::remove_if(objectRtree.begin(), objectRtree.end(), [id](rtree_entry &ent) // works only with boost >= 1.59
     {
@@ -112,6 +112,7 @@ void SemanticMap::updateUnion(size_t id)
 
 size_t SemanticMap::combineObjects(std::set<size_t> objects)
 {
+    ROS_INFO_STREAM("Combining " << objects.size() << " objects");
     auto it = objects.begin();
     size_t combinedId = *it;
     it++;
@@ -121,6 +122,9 @@ size_t SemanticMap::combineObjects(std::set<size_t> objects)
         SemanticObject &toMerge = objectList.at(*it);
         combinedObj.shapes.insert(combinedObj.shapes.end(), toMerge.shapes.begin(), toMerge.shapes.end());
         combinedObj.exist_certainty += toMerge.exist_certainty;
+        if (combinedObj.exist_certainty > 20)
+            combinedObj.exist_certainty = 20;
+
         removeObject(*it);
     }
     updateUnion(combinedId);
@@ -129,7 +133,7 @@ size_t SemanticMap::combineObjects(std::set<size_t> objects)
 
 void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
 {
-    ROS_INFO_STREAM("Collecting existing objects in shape: " << bg::wkt(pg));
+    //ROS_INFO_STREAM("Collecting existing objects in shape: " << bg::wkt(pg));
     std::set<size_t> existingObjects = getObjectsByNameInRange(name, pg);//getObjectsInRange(pg);
     filterIntersectionThresh(existingObjects, pg);
     if (existingObjects.empty())
@@ -169,15 +173,21 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
             // add evidence to shape
             // TODO: maybe update shape (union)
             multi_polygon un;
-            bg::union_(obj.shapes[fittingShapeInd].shape, pg, un);
-            obj.shapes[fittingShapeInd].shape = un[0];
+            UncertainShape &shape = obj.shapes[fittingShapeInd];
+            bg::union_(shape.shape, pg, un);
+            shape.shape = un[0];
             //ROS_INFO_STREAM("Fitting shape: " << bg::wkt(obj.shapes[fittingShapeInd].shape));
             //ROS_INFO_STREAM("Certainty: " << obj.shapes[fittingShapeInd].certainty);
-            obj.shapes[fittingShapeInd].certainty++;
+            shape.certainty++;
+            if (shape.certainty > 20)
+                shape.certainty = 20;
+
             //ROS_INFO_STREAM("Certainty increased: " << obj.shapes[fittingShapeInd].certainty);
         }
         updateUnion(objectId);
         obj.exist_certainty++;
+        if (obj.exist_certainty > 20)
+            obj.exist_certainty = 20;
         //ROS_INFO_STREAM("Exist certainty increased: " << obj.exist_certainty);
         //}
     }
@@ -186,16 +196,19 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
 void SemanticMap::removeEvidence(const polygon &visibilityArea)
 {
     std::set<size_t> existingObjects = getObjectsInRange(visibilityArea);
+    ROS_INFO_STREAM("Removing evidence for " << existingObjects.size() << " objects");
     for (size_t id : existingObjects)
     {
         SemanticObject &obj = objectList.at(id);
         if (bg::within(obj.shape_union, visibilityArea)) // whole union is visible
         {
-            obj.exist_certainty -= 0.1;
+            obj.exist_certainty -= 0.5;
+            ROS_INFO_STREAM("Object " << id << " certainty: " << obj.exist_certainty);
 
-            if (obj.exist_certainty < -10)
+            if (obj.exist_certainty < -5)
             {
                 removeObject(id);
+                ROS_INFO_STREAM("Object " << id << " removed");
             }
         }
         else
@@ -205,10 +218,11 @@ void SemanticMap::removeEvidence(const polygon &visibilityArea)
                 UncertainShape &shape = *it;
                 if (bg::within(shape.shape, visibilityArea)) // whole union is visible
                 {
-                    shape.certainty -= 0.1;
-                    if (shape.certainty < -10)
+                    shape.certainty -= 0.5;
+                    if (shape.certainty < -5)
                     {
                         it = obj.shapes.erase(it);
+                        ROS_INFO_STREAM("Shape from " << id << " removed");
                         continue;
                     }
                 }
@@ -268,7 +282,7 @@ std::set<size_t> SemanticMap::getObjectsByNameInRange(const std::string &name, c
     objectRtree.query(bgi::intersects(pg), std::back_inserter(result_obj));
     for (rtree_entry val : result_obj)
     {
-        ROS_INFO_STREAM("Val second: " << val.second);
+        // ROS_INFO_STREAM("Val second: " << val.second);
         const SemanticObject &foundObject = objectList.at(val.second);
         if (foundObject.name == name && bg::intersects(pg, foundObject.shape_union))
             result.insert(val.second);
@@ -284,18 +298,21 @@ hypermap_msgs::SemanticMap::Ptr SemanticMap::createMapMessage()
     for (auto val : objectList)
     {
         const SemanticObject &obj = val.second;
-        hypermap_msgs::SemanticObject obj_msg;
-        obj_msg.id = val.first;
-        obj_msg.name = obj.name;
-        //ROS_INFO_STREAM("Converting shape: " << bg::wkt(obj.shape_union));
-        obj_msg.shape = boostToPolygonMsg(obj.shape_union);
-        point centroid;
-        //ROS_INFO("Calculating centroid");
-        bg::centroid(obj.shape_union, centroid);
-        //ROS_INFO_STREAM("Centroid: " << bg::wkt(centroid));
-        obj_msg.position = boostToPointMsg(centroid);
+        if (obj.exist_certainty > 3)
+        {
+            hypermap_msgs::SemanticObject obj_msg;
+            obj_msg.id = val.first;
+            obj_msg.name = obj.name;
+            //ROS_INFO_STREAM("Converting shape: " << bg::wkt(obj.shape_union));
+            obj_msg.shape = boostToPolygonMsg(obj.shape_union);
+            point centroid;
+            //ROS_INFO("Calculating centroid");
+            bg::centroid(obj.shape_union, centroid);
+            //ROS_INFO_STREAM("Centroid: " << bg::wkt(centroid));
+            obj_msg.position = boostToPointMsg(centroid);
 
-        map->objects.push_back(std::move(obj_msg));
+            map->objects.push_back(std::move(obj_msg));
+        }
     }
 
     map->header.frame_id = "map";
