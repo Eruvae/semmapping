@@ -49,6 +49,21 @@ ros::Publisher semanticMapPub;
 
 semmapping::SemanticMap map;
 
+inline bool operator==(const geometry_msgs::Vector3 &lhs, const geometry_msgs::Vector3 &rhs)
+{
+    return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
+}
+
+inline bool operator==(const geometry_msgs::Quaternion &lhs, const geometry_msgs::Quaternion &rhs)
+{
+    return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z && lhs.w == rhs.w;
+}
+
+inline bool operator==(const geometry_msgs::Transform &lhs, const geometry_msgs::Transform &rhs)
+{
+    return lhs.translation == rhs.translation && lhs.rotation == rhs.rotation;
+}
+
 //volatile bool image_received = false;
 
 //hypermap_msgs::SemanticMap map;
@@ -408,6 +423,15 @@ inline semmapping::point calculateVisibilityEndPoint(const semmapping::point &st
 
 void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_msgs::BoundingBoxes::ConstPtr &boxes)
 {
+    static geometry_msgs::Transform lastCamPos;
+    geometry_msgs::TransformStamped camPos = tfBuffer.lookupTransform("map", cloud->header.frame_id, cloud->header.stamp, ros::Duration(0));
+    if (camPos.transform == lastCamPos)
+    {
+        ROS_INFO("Robot has not moved, not processing boxes");
+        return;
+    }
+    lastCamPos = camPos.transform;
+
     //ROS_INFO_STREAM("Time stamps comp - boxes: " << boxes->header.stamp << "; Image header: " << boxes->image_header.stamp << "; cloud: " << cloud->header.stamp);
     //ROS_INFO_STREAM("Frames: " << boxes->image_header.frame_id << "; " << cloud->header.frame_id);
     tfBuffer.transform(*cloud, *cloud, "map");
@@ -434,6 +458,15 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
 
 void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo)
 {
+    static geometry_msgs::Transform lastCamPos;
+    geometry_msgs::TransformStamped camPos = tfBuffer.lookupTransform("map", camInfo->header.frame_id, camInfo->header.stamp, ros::Duration(0));
+    if (camPos.transform == lastCamPos)
+    {
+        ROS_INFO("Robot has not moved, not removing evidence");
+        return;
+    }
+    lastCamPos = camPos.transform;
+
     image_geometry::PinholeCameraModel camModel;
     camModel.fromCameraInfo(camInfo);
 
@@ -468,7 +501,7 @@ void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo)
     //ROS_INFO_STREAM("UpLeft global: " << vecUpLeft->vector.x << ", " << vecUpLeft->vector.y << ", " << vecUpLeft->vector.z);
     //ROS_INFO_STREAM("UpRight global: " << vecUpRight->vector.x << ", " << vecUpRight->vector.y << ", " << vecUpRight->vector.z);
 
-    geometry_msgs::TransformStamped camPos = tfBuffer.lookupTransform("map", camModel.tfFrame(), camModel.stamp(), ros::Duration(0));
+    //geometry_msgs::TransformStamped camPos = tfBuffer.lookupTransform("map", camModel.tfFrame(), camModel.stamp(), ros::Duration(0));
     ROS_INFO_STREAM("Cam pos: " << camPos.transform.translation.x << ", " << camPos.transform.translation.y << ", " << camPos.transform.translation.z);
     /*
     [ INFO] [1554890337.562063526, 36.131000000]: Left global: -1.12738, 0.303181, 0.802171
