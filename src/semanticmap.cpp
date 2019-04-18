@@ -298,7 +298,7 @@ hypermap_msgs::SemanticMap::Ptr SemanticMap::createMapMessage()
     for (auto val : objectList)
     {
         const SemanticObject &obj = val.second;
-        if (obj.exist_certainty > 3)
+        if (obj.exist_certainty > 0.5)
         {
             hypermap_msgs::SemanticObject obj_msg;
             obj_msg.id = val.first;

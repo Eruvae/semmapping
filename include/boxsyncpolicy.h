@@ -3,7 +3,7 @@
 
 #include <ros/message_traits.h>
 #include <message_filters/sync_policies/exact_time.h>
-//#include <message_filters/sync_policies/approximate_time.h>
+#include <message_filters/sync_policies/approximate_time.h>
 
 #include <sensor_msgs/PointCloud2.h>
 #include <darknet_ros_msgs/BoundingBoxes.h>
@@ -29,7 +29,7 @@ namespace ros
 
 }
 
-typedef message_filters::sync_policies::ExactTime<sensor_msgs::PointCloud2, darknet_ros_msgs::BoundingBoxes> BoxSyncPolicy;
-//typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, darknet_ros_msgs::BoundingBoxes> BoxSyncPolicy;
+//typedef message_filters::sync_policies::ExactTime<sensor_msgs::PointCloud2, darknet_ros_msgs::BoundingBoxes> BoxSyncPolicy;
+typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, darknet_ros_msgs::BoundingBoxes> BoxSyncPolicy;
 
 #endif // BOXSYNCPOLICY_H

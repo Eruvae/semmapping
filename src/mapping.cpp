@@ -18,6 +18,7 @@
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_sensor_msgs/tf2_sensor_msgs.h>
+#include <tf2_eigen/tf2_eigen.h>
 #include <tf2_ros/message_filter.h>
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
@@ -361,6 +362,13 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     reg.setInputCloud (cloud);
     //reg.setIndices (indices);
     reg.setIndices(box.ymin, box.xmin, box.ymax - box.ymin/* + 1*/, box.xmax - box.xmin/* + 1*/);
+
+    if (reg.getIndices()->size() == 0)
+    {
+        ROS_WARN("No points in point cloud within bounding box");
+        return nullptr;
+    }
+
     reg.setInputNormals (normals);
     reg.setSmoothnessThreshold (3.0 / 180.0 * M_PI);
     reg.setCurvatureThreshold (1.0);
@@ -424,7 +432,16 @@ inline semmapping::point calculateVisibilityEndPoint(const semmapping::point &st
 void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_msgs::BoundingBoxes::ConstPtr &boxes)
 {
     static geometry_msgs::Transform lastCamPos;
-    geometry_msgs::TransformStamped camPos = tfBuffer.lookupTransform("map", cloud->header.frame_id, cloud->header.stamp, ros::Duration(0));
+    geometry_msgs::TransformStamped camPos;
+    try
+    {
+        camPos = tfBuffer.lookupTransform("map", cloud->header.frame_id, cloud->header.stamp, ros::Duration(0));
+    }
+    catch (tf2::TransformException ex)
+    {
+        ROS_WARN_STREAM("Could not read transform: " << ex.what());
+        return;
+    }
     if (camPos.transform == lastCamPos)
     {
         ROS_INFO("Robot has not moved, not processing boxes");
@@ -434,14 +451,30 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
 
     //ROS_INFO_STREAM("Time stamps comp - boxes: " << boxes->header.stamp << "; Image header: " << boxes->image_header.stamp << "; cloud: " << cloud->header.stamp);
     //ROS_INFO_STREAM("Frames: " << boxes->image_header.frame_id << "; " << cloud->header.frame_id);
-    tfBuffer.transform(*cloud, *cloud, "map");
+    //tfBuffer.transform(*cloud, *cloud, "map");
     pcl::PointCloud<pcl::PointXYZ>::Ptr pclCloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(*cloud, *pclCloud);
+
+    if (pclCloud->empty())
+    {
+        ROS_WARN("Point cloud is empty, not processing boxes");
+        return;
+    }
+
+    ROS_INFO_STREAM("Point cloud size: " << pclCloud->size());
+
+    Eigen::Affine3d camPosEigen = tf2::transformToEigen(camPos.transform);
+    pcl::transformPointCloud(*pclCloud, *pclCloud, camPosEigen);
+
     for (const darknet_ros_msgs::BoundingBox &box : boxes->bounding_boxes)
     {
         //std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
         pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, box);
-        semmapping::polygon res_pg = get2DBoxInMap(pclCloud, indices); // getPolygonInMap(pclCloud, indices);
+        if (indices == nullptr || indices->indices.size() == 0)
+            continue;
+
+        //semmapping::polygon res_pg = get2DBoxInMap(pclCloud, indices);
+        semmapping::polygon res_pg = getPolygonInMap(pclCloud, indices);
 
         // DEBUG: publish detected polygon
         geometry_msgs::PolygonStamped message;
@@ -459,7 +492,16 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
 void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo)
 {
     static geometry_msgs::Transform lastCamPos;
-    geometry_msgs::TransformStamped camPos = tfBuffer.lookupTransform("map", camInfo->header.frame_id, camInfo->header.stamp, ros::Duration(0));
+    geometry_msgs::TransformStamped camPos;
+    try
+    {
+        camPos = tfBuffer.lookupTransform("map", camInfo->header.frame_id, camInfo->header.stamp, ros::Duration(0));
+    }
+    catch (tf2::TransformException ex)
+    {
+        ROS_WARN_STREAM("Could not read transform: " << ex.what());
+        return;
+    }
     if (camPos.transform == lastCamPos)
     {
         ROS_INFO("Robot has not moved, not removing evidence");
@@ -493,8 +535,10 @@ void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo)
 
     //tfBuffer.transform(*vecLeft, *vecLeft, "map");
     //tfBuffer.transform(*vecRight, *vecRight, "map");
-    tfBuffer.transform(*vecUpLeft, *vecUpLeft, "map");
-    tfBuffer.transform(*vecUpRight, *vecUpRight, "map");
+    //tfBuffer.transform(*vecUpLeft, *vecUpLeft, "map");
+    //tfBuffer.transform(*vecUpRight, *vecUpRight, "map");
+    tf2::doTransform(*vecUpLeft, *vecUpLeft, camPos);
+    tf2::doTransform(*vecUpRight, *vecUpRight, camPos);
 
     //ROS_INFO_STREAM("Left global: " << vecLeft->vector.x << ", " << vecLeft->vector.y << ", " << vecLeft->vector.z);
     //ROS_INFO_STREAM("Right global: " << vecRight->vector.x << ", " << vecRight->vector.y << ", " << vecRight->vector.z);
@@ -541,7 +585,7 @@ int main(int argc, char **argv)
   tf2_ros::TransformListener tfListener(tfBuffer);
 
   message_filters::Subscriber<sensor_msgs::PointCloud2> depthCloudSub(nh, "/sensorring_cam3d/depth/points", 1);
-  tf2_ros::MessageFilter<sensor_msgs::PointCloud2> tfCloudFilter(depthCloudSub, tfBuffer, "map", 10, nh);
+  tf2_ros::MessageFilter<sensor_msgs::PointCloud2> tfCloudFilter(depthCloudSub, tfBuffer, "map", 20, nh);
   message_filters::Subscriber<darknet_ros_msgs::BoundingBoxes> boundingBoxSub(nh, "/darknet_ros/bounding_boxes", 1);
 
   message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfCloudFilter, boundingBoxSub);
