@@ -9,8 +9,8 @@ namespace semmapping
 
 const size_t MAX_SHAPES = 10; // maximum number of differnt shapes kept in object
 const int MIN_CERTAINTY = 10;
-const double FIT_THRESH = 0.6; // threshold to consider new shape as evidence
-const double MIN_FIT = 0.9; // minmal fit for shape to be considered same
+const double FIT_THRESH = 0.2; // threshold to consider new shape as evidence
+const double MIN_FIT = 0.8; // minmal fit for shape to be considered same
 
 struct UncertainShape
 {
@@ -69,6 +69,7 @@ public:
   size_t combineObjects(std::set<size_t> objects);
   std::set<size_t> getObjectsInRange(const polygon &pg);
   std::set<size_t> getObjectsByNameInRange(const std::string &name, const polygon &pg);
+  std::set<size_t> getObjectsByNameInRange(const std::string &name, const box &bx);
 
   hypermap_msgs::SemanticMap::Ptr createMapMessage();
 };

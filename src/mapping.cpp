@@ -13,6 +13,7 @@
 #include <pcl/ModelCoefficients.h>
 #include <pcl/surface/concave_hull.h>
 #include <pcl/surface/convex_hull.h>
+#include <pcl/filters/voxel_grid.h>
 //#include <pcl/visualization/cloud_viewer.h>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
@@ -24,6 +25,7 @@
 #include <message_filters/synchronizer.h>
 #include <message_filters/sync_policies/approximate_time.h>
 #include <message_filters/sync_policies/exact_time.h>
+#include <laser_geometry/laser_geometry.h>
 
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point_xy.hpp>
@@ -35,6 +37,7 @@
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/LaserScan.h>
 #include "darknet_ros_msgs/BoundingBoxes.h"
 #include "hypermap_msgs/SemanticMap.h"
 #include <geometry_msgs/PolygonStamped.h>
@@ -43,9 +46,10 @@
 #include "semanticmap.h"
 #include "boost_geometry_msgs.h"
 
-tf2_ros::Buffer tfBuffer;
+tf2_ros::Buffer tfBuffer(ros::Duration(20));
 ros::Publisher detectedPgPub;
 ros::Publisher observationPgPub;
+ros::Publisher completeAreaPgPub;
 ros::Publisher semanticMapPub;
 
 semmapping::SemanticMap map;
@@ -320,7 +324,71 @@ semmapping::polygon getPolygonInMap(pcl::PointCloud<pcl::PointXYZ>::ConstPtr clo
     return semmapping::pclToBoost(*cloud_hull);
 }
 
-pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const darknet_ros_msgs::BoundingBox &box)
+semmapping::polygon getCompleteAreaPg(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud)
+{
+    if (cloud->size() == 0)
+    {
+        ROS_WARN("Point cloud was empty, could not compute area");
+        return semmapping::polygon();
+    }
+    // Create a set of planar coefficients with X=Y=0,Z=1 (XY-plane)
+    pcl::ModelCoefficients::Ptr coefficients (new pcl::ModelCoefficients ());
+    coefficients->values.resize (4);
+    coefficients->values[0] = coefficients->values[1] = 0;
+    coefficients->values[2] = 1.0;
+    coefficients->values[3] = 0;
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_projected (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::ProjectInliers<pcl::PointXYZ> proj;
+    proj.setModelType (pcl::SACMODEL_PLANE);
+    proj.setModelCoefficients (coefficients);
+    proj.setInputCloud (cloud);
+    proj.filter (*cloud_projected);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ> ());
+    pcl::VoxelGrid<pcl::PointXYZ> sor;
+    sor.setInputCloud (cloud_projected);
+    sor.setLeafSize (0.01f, 0.01f, 0.01f);
+    sor.filter (*cloud_filtered);
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_hull (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::ConvexHull<pcl::PointXYZ> chull;
+    chull.setInputCloud (cloud_filtered);
+    chull.setDimension(2);
+    chull.reconstruct (*cloud_hull);
+
+    return semmapping::pclToBoost(*cloud_hull);
+}
+
+semmapping::polygon getConvexHull(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud)
+{
+    if (cloud->size() == 0)
+    {
+        ROS_WARN("Point cloud was empty, could not compute area");
+        return semmapping::polygon();
+    }
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_hull (new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::ConvexHull<pcl::PointXYZ> chull;
+    chull.setInputCloud (cloud);
+    chull.setDimension(2);
+    chull.reconstruct (*cloud_hull);
+
+    return semmapping::pclToBoost(*cloud_hull);
+}
+
+
+void computeNormals(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, pcl::search::Search<pcl::PointXYZ>::Ptr tree, pcl::PointCloud <pcl::Normal>::Ptr normals)
+{
+    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normal_estimator;
+    normal_estimator.setSearchMethod (tree);
+    normal_estimator.setInputCloud (cloud);
+    normal_estimator.setKSearch (50);
+    normal_estimator.compute (*normals);
+}
+
+pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, pcl::search::Search<pcl::PointXYZ>::Ptr tree,
+                                       pcl::PointCloud <pcl::Normal>::Ptr normals, const darknet_ros_msgs::BoundingBox &box)
 {
     /*pcl::PointCloud<pcl::PointXYZ>::Ptr object(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::ExtractIndices<pcl::PointXYZ> boxFilter;
@@ -345,14 +413,6 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
             indices->push_back(y * cloud->width + x);
         }
     }*/
-
-    pcl::search::Search<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
-    pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
-    pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normal_estimator;
-    normal_estimator.setSearchMethod (tree);
-    normal_estimator.setInputCloud (cloud);
-    normal_estimator.setKSearch (50);
-    normal_estimator.compute (*normals);
 
     pcl::RegionGrowing<pcl::PointXYZ, pcl::Normal> reg;
     reg.setMinClusterSize (50);
@@ -466,10 +526,14 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
     Eigen::Affine3d camPosEigen = tf2::transformToEigen(camPos.transform);
     pcl::transformPointCloud(*pclCloud, *pclCloud, camPosEigen);
 
+    pcl::search::Search<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
+    pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
+    computeNormals(pclCloud, tree, normals);
+
     for (const darknet_ros_msgs::BoundingBox &box : boxes->bounding_boxes)
     {
         //std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
-        pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, box);
+        pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, tree, normals, box);
         if (indices == nullptr || indices->indices.size() == 0)
             continue;
 
@@ -487,9 +551,21 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
         hypermap_msgs::SemanticMap::Ptr map_msg = map.createMapMessage();
         semanticMapPub.publish(map_msg);
     }
+
+    semmapping::polygon comp_area = getCompleteAreaPg(pclCloud);
+    if (comp_area.outer().size() > 0)
+    {
+        geometry_msgs::PolygonStamped comp_area_msg;
+        comp_area_msg.polygon = semmapping::boostToPolygonMsg(comp_area);
+        comp_area_msg.header.frame_id = "map";
+        comp_area_msg.header.stamp = cloud->header.stamp;
+        completeAreaPgPub.publish(comp_area_msg);
+
+        map.removeEvidence(comp_area);
+    }
 }
 
-void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo)
+void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo, const sensor_msgs::LaserScan::ConstPtr &laserScan)
 {
     static geometry_msgs::Transform lastCamPos;
     geometry_msgs::TransformStamped camPos;
@@ -567,14 +643,45 @@ void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo)
     semmapping::bg::append(obPg.outer(), p4);
     semmapping::bg::correct(obPg);
 
-    // DEBUG: publish observation area
-    geometry_msgs::PolygonStamped message;
-    message.polygon = semmapping::boostToPolygonMsg(obPg);
-    message.header.frame_id = "map";
-    message.header.stamp = camModel.stamp();
-    observationPgPub.publish(message);
+    laser_geometry::LaserProjection projector;
+    sensor_msgs::PointCloud2 laserCloud;
+    try
+    {
+        projector.transformLaserScanToPointCloud("map", *laserScan, laserCloud, tfBuffer);
+    }
+    catch (tf2::TransformException ex)
+    {
+        ROS_WARN_STREAM("Could not read transform: " << ex.what());
+        return;
+    }
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pclLaserCloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::fromROSMsg(laserCloud, *pclLaserCloud);
+    semmapping::polygon laserPg = getConvexHull(pclLaserCloud);
 
-    map.removeEvidence(obPg);
+    /*if (laserPg.outer().size() > 0)
+    {
+        geometry_msgs::PolygonStamped comp_area_msg;
+        comp_area_msg.polygon = semmapping::boostToPolygonMsg(laserPg);
+        comp_area_msg.header.frame_id = "map";
+        comp_area_msg.header.stamp = laserScan->header.stamp;
+        completeAreaPgPub.publish(comp_area_msg);
+    }*/
+
+    semmapping::multi_polygon intersectionArea;
+    semmapping::bg::intersection(obPg, laserPg, intersectionArea);
+    //semmapping::bg::convex_hull(intersectionArea, obPg);
+
+    if (intersectionArea.size() > 0 && intersectionArea[0].outer().size() > 0)
+    {
+        // DEBUG: publish observation area
+        geometry_msgs::PolygonStamped message;
+        message.polygon = semmapping::boostToPolygonMsg(intersectionArea[0]);
+        message.header.frame_id = "map";
+        message.header.stamp = camModel.stamp();
+        observationPgPub.publish(message);
+
+        map.removeEvidence(obPg);
+    }
 }
 
 int main(int argc, char **argv)
@@ -590,11 +697,16 @@ int main(int argc, char **argv)
 
   message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfCloudFilter, boundingBoxSub);
 
-  message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, "/sensorring_cam3d/depth/camera_info", 1);
-  tf2_ros::MessageFilter<sensor_msgs::CameraInfo> tfCamFilter(cameraInfoSub, tfBuffer, "map", 10, nh);
+  //message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, "/sensorring_cam3d/depth/camera_info", 1);
+  //tf2_ros::MessageFilter<sensor_msgs::CameraInfo> tfCamFilter(cameraInfoSub, tfBuffer, "map", 10, nh);
+
+  //message_filters::Subscriber<sensor_msgs::LaserScan> laserScanSub(nh, "/scan_unified", 1);
+
+  //typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::CameraInfo, sensor_msgs::LaserScan> CamLaserSyncPolicy;
+  //message_filters::Synchronizer<CamLaserSyncPolicy> syncCamLaser(CamLaserSyncPolicy(10), tfCamFilter, laserScanSub);
 
   sync.registerCallback(processBoxes);
-  tfCamFilter.registerCallback(removeMissing);
+  //syncCamLaser.registerCallback(removeMissing);
 
 
   //tfFilter.registerCallback(processBoxes);
@@ -616,6 +728,7 @@ int main(int argc, char **argv)
 
   detectedPgPub = nh.advertise<geometry_msgs::PolygonStamped>("detected_pg", 1);
   observationPgPub = nh.advertise<geometry_msgs::PolygonStamped>("observation_pg", 1);
+  completeAreaPgPub = nh.advertise<geometry_msgs::PolygonStamped>("complete_area_pg", 1);
   semanticMapPub = nh.advertise<hypermap_msgs::SemanticMap>("semantic_map", 1);
 
   ros::spin();
