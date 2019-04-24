@@ -312,9 +312,15 @@ semmapping::polygon getPolygonInMap(pcl::PointCloud<pcl::PointXYZ>::ConstPtr clo
     proj.setIndices(indices);
     proj.filter (*cloud_projected);
 
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ> ());
+    pcl::VoxelGrid<pcl::PointXYZ> sor;
+    sor.setInputCloud (cloud_projected);
+    sor.setLeafSize (0.01f, 0.01f, 0.01f);
+    sor.filter (*cloud_filtered);
+
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_hull (new pcl::PointCloud<pcl::PointXYZ>);
     pcl::ConvexHull<pcl::PointXYZ> chull;
-    chull.setInputCloud (cloud_projected);
+    chull.setInputCloud (cloud_filtered);
     //chull.setAlpha (10);
     chull.setDimension(2);
     chull.reconstruct (*cloud_hull);
@@ -554,6 +560,11 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
         //semmapping::polygon res_pg = get2DBoxInMap(pclCloud, indices);
         semmapping::polygon res_pg = getPolygonInMap(pclCloud, indices);
 
+        if (res_pg.outer().empty())
+        {
+            ROS_WARN("Polygon in map could not be reconstructed");
+            continue;
+        }
         // DEBUG: publish detected polygon
         geometry_msgs::PolygonStamped message;
         message.polygon = semmapping::boostToPolygonMsg(res_pg);

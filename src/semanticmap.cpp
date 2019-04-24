@@ -95,6 +95,7 @@ void SemanticMap::updateUnion(size_t id)
         multi_polygon res;
         bg::union_(un, shape.shape, res);
         un = std::move(res);
+        //un.push_back(shape.shape);
     }
     ROS_INFO_STREAM("Union size: " << un.size());
     //ROS_INFO_STREAM("Union: " << bg::wkt(un));
