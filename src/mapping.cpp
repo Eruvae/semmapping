@@ -377,6 +377,15 @@ semmapping::polygon getConvexHull(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud
     return semmapping::pclToBoost(*cloud_hull);
 }
 
+/*pcl::PointCloud<pcl::PointXYZ>::Ptr downsampleCloud(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud)
+{
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZ> ());
+    pcl::VoxelGrid<pcl::PointXYZ> sor;
+    sor.setInputCloud (cloud);
+    sor.setLeafSize (0.01f, 0.01f, 0.01f);
+    sor.filter (*cloud_filtered);
+    return cloud_filtered;
+}*/
 
 void computeNormals(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, pcl::search::Search<pcl::PointXYZ>::Ptr tree, pcl::PointCloud <pcl::Normal>::Ptr normals)
 {
@@ -491,23 +500,28 @@ inline semmapping::point calculateVisibilityEndPoint(const semmapping::point &st
 
 void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_msgs::BoundingBoxes::ConstPtr &boxes)
 {
-    static geometry_msgs::Transform lastCamPos;
-    geometry_msgs::TransformStamped camPos;
+    static Eigen::Affine3d lastCamPose;
+    geometry_msgs::TransformStamped camPose;
     try
     {
-        camPos = tfBuffer.lookupTransform("map", cloud->header.frame_id, cloud->header.stamp, ros::Duration(0));
+        camPose = tfBuffer.lookupTransform("map", cloud->header.frame_id, cloud->header.stamp, ros::Duration(0));
     }
     catch (tf2::TransformException ex)
     {
         ROS_WARN_STREAM("Could not read transform: " << ex.what());
         return;
     }
-    if (camPos.transform == lastCamPos)
+
+    Eigen::Affine3d camPoseEigen = tf2::transformToEigen(camPose.transform);
+
+    if (camPoseEigen.isApprox(lastCamPose, 1e-2))
     {
         ROS_INFO("Robot has not moved, not processing boxes");
         return;
     }
-    lastCamPos = camPos.transform;
+
+    lastCamPose = camPoseEigen;
+
 
     //ROS_INFO_STREAM("Time stamps comp - boxes: " << boxes->header.stamp << "; Image header: " << boxes->image_header.stamp << "; cloud: " << cloud->header.stamp);
     //ROS_INFO_STREAM("Frames: " << boxes->image_header.frame_id << "; " << cloud->header.frame_id);
@@ -521,10 +535,10 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
         return;
     }
 
-    ROS_INFO_STREAM("Point cloud size: " << pclCloud->size());
+    // pclCloud = downsampleCloud(pclCloud);
 
-    Eigen::Affine3d camPosEigen = tf2::transformToEigen(camPos.transform);
-    pcl::transformPointCloud(*pclCloud, *pclCloud, camPosEigen);
+
+    pcl::transformPointCloud(*pclCloud, *pclCloud, camPoseEigen);
 
     pcl::search::Search<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
     pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
@@ -548,8 +562,6 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
         detectedPgPub.publish(message);
 
         map.addEvidence(box.Class, res_pg);
-        hypermap_msgs::SemanticMap::Ptr map_msg = map.createMapMessage();
-        semanticMapPub.publish(map_msg);
     }
 
     semmapping::polygon comp_area = getCompleteAreaPg(pclCloud);
@@ -563,27 +575,34 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
 
         map.removeEvidence(comp_area);
     }
+
+    hypermap_msgs::SemanticMap::Ptr map_msg = map.createMapMessage();
+    semanticMapPub.publish(map_msg);
 }
 
 void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo, const sensor_msgs::LaserScan::ConstPtr &laserScan)
 {
-    static geometry_msgs::Transform lastCamPos;
-    geometry_msgs::TransformStamped camPos;
+    static Eigen::Affine3d lastCamPose;
+    geometry_msgs::TransformStamped camPose;
     try
     {
-        camPos = tfBuffer.lookupTransform("map", camInfo->header.frame_id, camInfo->header.stamp, ros::Duration(0));
+        camPose = tfBuffer.lookupTransform("map", camInfo->header.frame_id, camInfo->header.stamp, ros::Duration(0));
     }
     catch (tf2::TransformException ex)
     {
         ROS_WARN_STREAM("Could not read transform: " << ex.what());
         return;
     }
-    if (camPos.transform == lastCamPos)
+
+    Eigen::Affine3d camPoseEigen = tf2::transformToEigen(camPose.transform);
+
+    if (camPoseEigen.isApprox(lastCamPose, 1e-2))
     {
         ROS_INFO("Robot has not moved, not removing evidence");
         return;
     }
-    lastCamPos = camPos.transform;
+
+    lastCamPose = camPoseEigen;
 
     image_geometry::PinholeCameraModel camModel;
     camModel.fromCameraInfo(camInfo);
@@ -613,16 +632,16 @@ void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo, const senso
     //tfBuffer.transform(*vecRight, *vecRight, "map");
     //tfBuffer.transform(*vecUpLeft, *vecUpLeft, "map");
     //tfBuffer.transform(*vecUpRight, *vecUpRight, "map");
-    tf2::doTransform(*vecUpLeft, *vecUpLeft, camPos);
-    tf2::doTransform(*vecUpRight, *vecUpRight, camPos);
+    tf2::doTransform(*vecUpLeft, *vecUpLeft, camPose);
+    tf2::doTransform(*vecUpRight, *vecUpRight, camPose);
 
     //ROS_INFO_STREAM("Left global: " << vecLeft->vector.x << ", " << vecLeft->vector.y << ", " << vecLeft->vector.z);
     //ROS_INFO_STREAM("Right global: " << vecRight->vector.x << ", " << vecRight->vector.y << ", " << vecRight->vector.z);
     //ROS_INFO_STREAM("UpLeft global: " << vecUpLeft->vector.x << ", " << vecUpLeft->vector.y << ", " << vecUpLeft->vector.z);
     //ROS_INFO_STREAM("UpRight global: " << vecUpRight->vector.x << ", " << vecUpRight->vector.y << ", " << vecUpRight->vector.z);
 
-    //geometry_msgs::TransformStamped camPos = tfBuffer.lookupTransform("map", camModel.tfFrame(), camModel.stamp(), ros::Duration(0));
-    ROS_INFO_STREAM("Cam pos: " << camPos.transform.translation.x << ", " << camPos.transform.translation.y << ", " << camPos.transform.translation.z);
+    //geometry_msgs::TransformStamped camPose = tfBuffer.lookupTransform("map", camModel.tfFrame(), camModel.stamp(), ros::Duration(0));
+    ROS_INFO_STREAM("Cam pos: " << camPose.transform.translation.x << ", " << camPose.transform.translation.y << ", " << camPose.transform.translation.z);
     /*
     [ INFO] [1554890337.562063526, 36.131000000]: Left global: -1.12738, 0.303181, 0.802171
     [ INFO] [1554890337.562079055, 36.131000000]: Right global: -0.261476, 1.13645, 0.802171
@@ -631,8 +650,8 @@ void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo, const senso
     [ INFO] [1554890337.562140750, 36.131000000]: Cam pos: -0.0337588, 0.120642, 1.20268
      */
 
-    semmapping::point p1 = calculateXYPlaneIntersection(camPos.transform.translation, vecUpLeft->vector);
-    semmapping::point p2 = calculateXYPlaneIntersection(camPos.transform.translation, vecUpRight->vector);
+    semmapping::point p1 = calculateXYPlaneIntersection(camPose.transform.translation, vecUpLeft->vector);
+    semmapping::point p2 = calculateXYPlaneIntersection(camPose.transform.translation, vecUpRight->vector);
     semmapping::point p3 = calculateVisibilityEndPoint(p2, vecUpRight->vector);
     semmapping::point p4 = calculateVisibilityEndPoint(p1, vecUpLeft->vector);
 
