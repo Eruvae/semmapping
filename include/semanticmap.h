@@ -53,6 +53,19 @@ class SemanticMap
       return bg::area(sect) / bg::area(un);
   }
 
+  inline static box getSearchBox(const polygon &pg)
+  {
+      point centroid;
+      bg::centroid(pg, centroid);
+      //double searchRadius = bg::perimeter(pg) / 8;
+      //double searchRadius = std::sqrt(bg::area(pg));
+      //if (searchRadius < 1)
+      //    searchRadius = 1;
+      double searchRadius = 0.5;
+
+      return box(point(centroid.x() - searchRadius, centroid.y() - searchRadius), point(centroid.x() + searchRadius, centroid.y() + searchRadius));
+  }
+
 public:
   SemanticMap();
 
@@ -68,6 +81,7 @@ public:
   void removeObject(size_t id);
   size_t combineObjects(std::set<size_t> objects);
   std::set<size_t> getObjectsInRange(const polygon &pg);
+  std::set<size_t> getObjectsWithinRange(const polygon &pg);
   std::set<size_t> getObjectsByNameInRange(const std::string &name, const polygon &pg);
   std::set<size_t> getObjectsByNameInRange(const std::string &name, const box &bx);
 
