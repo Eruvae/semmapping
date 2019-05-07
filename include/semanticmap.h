@@ -86,6 +86,8 @@ public:
   std::set<size_t> getObjectsByNameInRange(const std::string &name, const box &bx);
 
   hypermap_msgs::SemanticMap::Ptr createMapMessage();
+
+  bool writeMapData(std::ostream &output);
 };
 
 }

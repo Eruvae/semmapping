@@ -17,6 +17,8 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(Boost 1.58 REQUIRED)
 find_package(PCL REQUIRED)
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(YAMLCPP yaml-cpp REQUIRED)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -121,6 +123,7 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
   ${PCL_INCLUDE_DIRS}
+  ${YAMLCPP_INCLUDE_DIRS}
 )
 
 link_directories(
@@ -165,6 +168,7 @@ add_dependencies(mapping ${catkin_EXPORTED_TARGETS})
 target_link_libraries(mapping
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
+  ${YAMLCPP_LIBRARIES}
 )
 
 #############

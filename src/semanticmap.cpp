@@ -1,6 +1,8 @@
 #include "semanticmap.h"
 #include <ros/ros.h>
 
+#include <yaml-cpp/yaml.h>
+
 namespace semmapping
 {
 
@@ -421,6 +423,41 @@ hypermap_msgs::SemanticMap::Ptr SemanticMap::createMapMessage()
     map->header.stamp = ros::Time::now();
     //ROS_INFO("Created message successfully");
     return map;
+}
+
+bool SemanticMap::writeMapData(std::ostream &output)
+{
+    YAML::Node map;
+    for(const auto &map_entry : objectList)
+    {
+        const SemanticObject &obj = map_entry.second;
+        YAML::Node n;
+        n["name"] = obj.name;
+        /*for (const point &p : obj.shape.outer())
+        {
+            YAML::Node yp;
+            yp.push_back(p.x());
+            yp.push_back(p.y());
+            yp.SetStyle(YAML::EmitterStyle::Flow);
+            n["shape"].push_back(yp);
+        }
+        n["shape"].SetStyle(YAML::EmitterStyle::Flow);*/
+        for (const UncertainShape &shape : obj.shapes)
+        {
+            std::ostringstream sh;
+            sh << bg::wkt(shape.shape);
+            YAML::Node us;
+            us["shape"] = sh.str();
+            us["certainty"] = shape.certainty;
+            n["shapes"].push_back(us);
+        }
+        std::ostringstream sh;
+        sh << bg::wkt(obj.shape_union);
+        n["shape_union"] = sh.str();
+        map.push_back(n);
+    }
+    output << map;
+    return true;
 }
 
 }
