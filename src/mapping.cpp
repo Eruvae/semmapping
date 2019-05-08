@@ -1,6 +1,7 @@
 #include <ros/ros.h>
 #include <cmath>
 #include <fstream>
+#include <csignal>
 #include <pcl_ros/point_cloud.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl_ros/transforms.h>
@@ -714,6 +715,46 @@ void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo, const senso
     }
 }
 
+std::string readNext(const std::string &str, std::string::const_iterator &begin)
+{
+    std::string::const_iterator end = str.cend();
+    std::string res;
+    res.reserve(str.size());
+
+    for (; begin != end && *begin == ' '; begin++); // skip leading whitespaces
+
+    char end_char = ' ';
+    if (begin != end && *begin == '"')
+    {
+        end_char = '"';
+        begin++;
+    }
+
+    bool escape = false;
+    for(; begin != end; begin++)
+    {
+        if (escape)
+            escape = false;
+        else if (*begin == '\\')
+        {
+            escape = true;
+            continue;
+        }
+        else if (*begin == end_char)
+        {
+            begin++; // remove end character
+            break;
+        }
+        res += *begin;
+    }
+    return res;
+}
+
+void sigintHandler(int sig)
+{
+    exit(0);
+}
+
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "mapping");
@@ -761,5 +802,60 @@ int main(int argc, char **argv)
   completeAreaPgPub = nh.advertise<geometry_msgs::PolygonStamped>("complete_area_pg", 1);
   semanticMapPub = nh.advertise<hypermap_msgs::SemanticMap>("semantic_map", 1);
 
-  ros::spin();
+  ros::AsyncSpinner spinner(4);
+  spinner.start();
+
+  signal(SIGINT, sigintHandler);
+
+  std::cout << "Waiting for input. type \"help\" for help." << std::endl;
+  while(1)
+  {
+      std::string in;
+      std::getline(std::cin, in);
+      std::string::const_iterator it = in.cbegin();
+      std::string command = readNext(in, it);
+      if (command == "help")
+      {
+          std::cout << "Available commands:" << std::endl; // TODO
+      }
+      else if (command == "load")
+      {
+          std::string fname = readNext(in, it);
+          std::cout << "Loading map file: " << fname << std::endl;
+          // TODO
+      }
+      else if (command == "save")
+      {
+          std::string fname = readNext(in, it);
+          std::cout << "Saving map file: " << fname << std::endl;
+          std::ofstream file(fname);
+          if (!file)
+          {
+              std::cout << "File could not be opened" << std::endl;
+              continue;
+          }
+          if (map.writeMapData(file))
+          {
+              std::cout << "Map saving successfully" << std::endl;
+          }
+          else
+          {
+              std::cout << "Failed saving map" << std::endl;
+          }
+          file.close();
+      }
+      else if (command == "exit")
+      {
+          std::cout << "Shutting down" << std::endl;
+          break;
+      }
+      else if (command == "clear")
+      {
+          // TODO
+      }
+      else
+      {
+          std::cout << "Command \"" << command << "\" not recognized" << std::endl;
+      }
+  }
 }

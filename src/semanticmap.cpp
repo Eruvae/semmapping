@@ -92,10 +92,10 @@ void SemanticMap::updateUnion(size_t id)
     multi_polygon un;
     ROS_INFO_STREAM("Shape count: " << obj.shapes.size());
 
-    size_t best_shape_ind = 0;
-    double best_shape_cert = DBL_MIN;
+    //size_t best_shape_ind = 0;
+    //double best_shape_cert = DBL_MIN;
 
-    size_t i = 0;
+    //size_t i = 0;
     for (const UncertainShape &shape : obj.shapes)
     {
         //if (i->certainty > MIN_CERTAINTY)
@@ -104,19 +104,19 @@ void SemanticMap::updateUnion(size_t id)
         un = std::move(res);
         //un.push_back(shape.shape);
 
-        if (shape.certainty > best_shape_cert)
-        {
-            best_shape_cert = shape.certainty;
-            best_shape_ind = i;
-        }
-        i++;
+        //if (shape.certainty > best_shape_cert)
+        //{
+        //    best_shape_cert = shape.certainty;
+        //    best_shape_ind = i;
+        //}
+        //i++;
     }
     ROS_INFO_STREAM("Union size: " << un.size());
     //ROS_INFO_STREAM("Union: " << bg::wkt(un));
     //obj.shape_union = un[0];
 
-    //bg::convex_hull(un, obj.shape_union);
-    obj.shape_union = obj.shapes[best_shape_ind].shape;
+    bg::convex_hull(un, obj.shape_union);
+    //obj.shape_union = obj.shapes[best_shape_ind].shape;
 
     //ROS_INFO("Updating bounding box");
     objectRtree.remove(std::make_pair(obj.bounding_box, id));
@@ -433,6 +433,7 @@ bool SemanticMap::writeMapData(std::ostream &output)
         const SemanticObject &obj = map_entry.second;
         YAML::Node n;
         n["name"] = obj.name;
+        n["exist_certainty"] = obj.exist_certainty;
         /*for (const point &p : obj.shape.outer())
         {
             YAML::Node yp;
