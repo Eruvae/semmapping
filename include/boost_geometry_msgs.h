@@ -21,6 +21,7 @@ typedef bg::model::d2::point_xy<double> point;
 typedef bg::model::box<point> box;
 typedef bg::model::polygon<point> polygon;
 typedef bg::model::multi_polygon<polygon> multi_polygon;
+typedef bg::model::multi_point<point> multi_point;
 typedef bg::model::ring<point> ring;
 
 typedef boost::shared_ptr<polygon> polygon_ptr;
@@ -80,6 +81,21 @@ inline point pclToBoost(const pcl::PointXYZ &p)
     return point(p.x, p.y);
 }
 
+//inline point pclToBoost(const pcl::PointXY &p)
+//{
+//    return point(p.x, p.y);
+//}
+
+inline pcl::PointXYZ boostToPcl(const point &p)
+{
+    return pcl::PointXYZ(p.x(), p.y(), 0);
+}
+
+//inline pcl::PointXY boostToPclXY(const point &p)
+//{
+//    return pcl::PointXY{(float)p.x(), (float)p.y()};
+//}
+
 inline polygon pclToBoost(const pcl::PointCloud<pcl::PointXYZ> &pc)
 {
     polygon pg;
@@ -89,6 +105,16 @@ inline polygon pclToBoost(const pcl::PointCloud<pcl::PointXYZ> &pc)
     bg::correct(pg);
     return pg;
 }
+
+//inline polygon pclToBoost(const pcl::PointCloud<pcl::PointXY> &pc)
+//{
+//    polygon pg;
+//    for (const pcl::PointXY &p : pc)
+//        bg::append(pg.outer(), pclToBoost(p));
+//
+//    bg::correct(pg);
+//    return pg;
+//}
 
 
 }

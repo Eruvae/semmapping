@@ -95,14 +95,21 @@ void SemanticMap::updateUnion(size_t id)
     //size_t best_shape_ind = 0;
     //double best_shape_cert = DBL_MIN;
 
+    //multi_point obj_cloud;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr obj_cloud (new pcl::PointCloud<pcl::PointXYZ> ());
+
     //size_t i = 0;
     for (const UncertainShape &shape : obj.shapes)
     {
         //if (i->certainty > MIN_CERTAINTY)
-        multi_polygon res;
-        bg::union_(un, shape.shape, res);
-        un = std::move(res);
+
+        //multi_polygon res;
+        //bg::union_(un, shape.shape, res);
+        //un = std::move(res);
+
         //un.push_back(shape.shape);
+
+        addToPointCloud(obj_cloud, shape.shape);
 
         //if (shape.certainty > best_shape_cert)
         //{
@@ -115,7 +122,14 @@ void SemanticMap::updateUnion(size_t id)
     //ROS_INFO_STREAM("Union: " << bg::wkt(un));
     //obj.shape_union = un[0];
 
-    bg::convex_hull(un, obj.shape_union);
+    //bg::convex_hull(un, obj.shape_union);
+
+    //bg::correct(obj_cloud);
+    //bg::convex_hull(obj_cloud, obj.shape_union);
+    //bg::correct(obj.shape_union);
+
+    obj.shape_union = computeConvexHullPcl(obj_cloud);
+
     //obj.shape_union = obj.shapes[best_shape_ind].shape;
 
     //ROS_INFO("Updating bounding box");
@@ -246,12 +260,25 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
         else
         {
             ROS_INFO_STREAM("Fitting shape found: " << fittingShapeInd);
+            UncertainShape &shape = obj.shapes[fittingShapeInd];
             // add evidence to shape
             // TODO: maybe update shape (union)
-            multi_polygon un;
-            UncertainShape &shape = obj.shapes[fittingShapeInd];
-            bg::union_(shape.shape, pg, un);
-            shape.shape = un[0];
+            //multi_polygon un;
+            //bg::union_(shape.shape, pg, un);
+            //shape.shape = un[0];
+
+            //multi_point obj_cloud;
+            //addToPointCloud(obj_cloud, shape.shape);
+            //addToPointCloud(obj_cloud, pg);
+            //bg::correct(obj_cloud);
+            //bg::convex_hull(obj_cloud, shape.shape);
+            //bg::correct(shape.shape);
+
+            pcl::PointCloud<pcl::PointXYZ>::Ptr obj_cloud (new pcl::PointCloud<pcl::PointXYZ> ());
+            addToPointCloud(obj_cloud, shape.shape);
+            addToPointCloud(obj_cloud, pg);
+            shape.shape = computeConvexHullPcl(obj_cloud);
+
             //ROS_INFO_STREAM("Fitting shape: " << bg::wkt(obj.shapes[fittingShapeInd].shape));
             //ROS_INFO_STREAM("Certainty: " << obj.shapes[fittingShapeInd].certainty);
             shape.certainty++;

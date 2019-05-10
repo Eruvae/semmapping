@@ -3,6 +3,7 @@
 
 #include "boost_geometry_msgs.h"
 #include <hypermap_msgs/SemanticMap.h>
+#include <pcl/surface/convex_hull.h>
 
 namespace semmapping
 {
@@ -64,6 +65,32 @@ class SemanticMap
       double searchRadius = 0.5;
 
       return box(point(centroid.x() - searchRadius, centroid.y() - searchRadius), point(centroid.x() + searchRadius, centroid.y() + searchRadius));
+  }
+
+  inline static void addToPointCloud(multi_point &cloud, const polygon &pg)
+  {
+      for (const point &p : pg.outer())
+      {
+          cloud.push_back(p);
+      }
+  }
+
+  inline static void addToPointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, const polygon &pg)
+  {
+      for (const point &p : pg.outer())
+      {
+          cloud->push_back(boostToPcl(p));
+      }
+  }
+
+  polygon computeConvexHullPcl(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud)
+  {
+      pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_hull (new pcl::PointCloud<pcl::PointXYZ>);
+      pcl::ConvexHull<pcl::PointXYZ> chull;
+      chull.setInputCloud (cloud);
+      chull.setDimension(2);
+      chull.reconstruct (*cloud_hull);
+      return pclToBoost(*cloud_hull);
   }
 
 public:
