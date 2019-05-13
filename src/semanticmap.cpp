@@ -50,10 +50,24 @@ int SemanticMap::findFittingExistingShape(std::vector<UncertainShape> &shapes, c
     return index;
 }
 
-/*int SemanticMap::deleteLeastConsistentShape(size_t id)
+void SemanticMap::deleteLeastConsistentShape(size_t id)
 {
-    // TODO
-}*/
+    SemanticObject &obj = objectList.at(id);
+    double max_dist = 0;
+    auto it = obj.shapes.begin();
+    auto toDelete = it;
+    for (; it != obj.shapes.end(); it++)
+    {
+        double dist = bg::distance(obj.centroid_mean, it->centroid);
+        if (dist > max_dist)
+        {
+            max_dist = dist;
+            toDelete = it;
+        }
+    }
+    removeFromMean(obj.centroid_mean, toDelete->centroid, obj.shapes.size() - 1);
+    obj.shapes.erase(toDelete);
+}
 
 /*void SemanticMap::cleanupShapes(SemanticObject &obj)
 {
@@ -250,12 +264,13 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
         {
             ROS_INFO("No fitting shape found, creating new");
             // not fitting shape found, create new shape
-            //if (obj.shapes.size() >= MAX_SHAPES)
-            //{
-            //    // delete least consistent shape
-            //    deleteLeastConsistentShape(objectId);
-            //}
-            obj.shapes.push_back({pg, 1});
+            point shape_centroid;
+            bg::centroid(pg, shape_centroid);
+            obj.shapes.push_back({pg, shape_centroid, 1});
+            addToMean(obj.centroid_mean, shape_centroid, obj.shapes.size());
+
+            if (obj.shapes.size() > MAX_SHAPES) // delete least consistent shape
+                deleteLeastConsistentShape(objectId);
         }
         else
         {
@@ -278,6 +293,9 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
             addToPointCloud(obj_cloud, shape.shape);
             addToPointCloud(obj_cloud, pg);
             shape.shape = computeConvexHullPcl(obj_cloud);
+            removeFromMean(obj.centroid_mean, shape.centroid, obj.shapes.size() - 1);
+            bg::centroid(shape.shape, shape.centroid);
+            addToMean(obj.centroid_mean, shape.centroid, obj.shapes.size());
 
             //ROS_INFO_STREAM("Fitting shape: " << bg::wkt(obj.shapes[fittingShapeInd].shape));
             //ROS_INFO_STREAM("Certainty: " << obj.shapes[fittingShapeInd].certainty);
@@ -338,9 +356,12 @@ void SemanticMap::addNewObject(const std::string name, const polygon &initial_sh
     ROS_INFO_STREAM("Initial shape: " << bg::wkt(initial_shape));
     SemanticObject obj;
     obj.name = name;
-    obj.shapes.push_back({initial_shape, 1});
+    point shape_centroid;
+    bg::centroid(initial_shape, shape_centroid);
+    obj.shapes.push_back({initial_shape, shape_centroid, 1});
     obj.exist_certainty = 1;
     obj.shape_union = initial_shape;
+    obj.centroid_mean = shape_centroid;
     obj.bounding_box = getSearchBox(obj.shape_union); //bg::return_envelope<box>(obj.shape_union);
 
     ROS_INFO("Adding object to map");

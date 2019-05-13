@@ -8,7 +8,7 @@
 namespace semmapping
 {
 
-const size_t MAX_SHAPES = 10; // maximum number of differnt shapes kept in object
+const size_t MAX_SHAPES = 5; // maximum number of differnt shapes kept in object
 const int MIN_CERTAINTY = 10;
 const double FIT_THRESH = 0.2; // threshold to consider new shape as evidence
 const double MIN_FIT = 0.8; // minmal fit for shape to be considered same
@@ -16,6 +16,7 @@ const double MIN_FIT = 0.8; // minmal fit for shape to be considered same
 struct UncertainShape
 {
     polygon shape;
+    point centroid;
     double certainty;
 };
 
@@ -25,6 +26,7 @@ struct SemanticObject
   std::vector<UncertainShape> shapes;
   double exist_certainty;
   polygon shape_union;
+  point centroid_mean;
   box bounding_box;
   //std::vector<std::string> tags;
   //std::vector<double> confidence;
@@ -52,6 +54,22 @@ class SemanticMap
       multi_polygon sect;
       bg::intersection(a, b, sect);
       return bg::area(sect) / bg::area(un);
+  }
+
+  inline static void addToMean(point &mean, const point &toAdd, size_t n)
+  {
+      point tmp = toAdd;
+      bg::subtract_point(tmp, mean);
+      bg::divide_value(tmp, n);
+      bg::add_point(mean, tmp);
+  }
+
+  inline static void removeFromMean(point &mean, const point &toRemove, size_t n)
+  {
+      point tmp = mean;
+      bg::subtract_point(tmp, toRemove);
+      bg::divide_value(tmp, n);
+      bg::add_point(mean, tmp);
   }
 
   inline static box getSearchBox(const polygon &pg)
@@ -100,6 +118,7 @@ public:
   void removeEvidence(const polygon &visibilityArea);
 
   //int deleteLeastConsistentShape(size_t id);
+  void deleteLeastConsistentShape(size_t id);
   //void cleanupShapes(SemanticObject &obj);
   void updateUnion(size_t id);
   void filterIntersectionThresh(std::set<size_t> &object_list, const polygon &pg);

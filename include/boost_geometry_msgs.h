@@ -3,6 +3,7 @@
 
 #include <boost/geometry.hpp>
 #include <boost/geometry/geometries/point_xy.hpp>
+#include <boost/geometry/arithmetic/arithmetic.hpp>
 
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
