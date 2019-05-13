@@ -252,63 +252,68 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
     }
     else
     {
-        size_t objectId;
-        if (existingObjects.size() > 1)
-            objectId = combineObjects(existingObjects);
-        else
-            objectId = *existingObjects.begin();
+        //size_t objectId;
+        //if (existingObjects.size() > 1)
+        //    objectId = combineObjects(existingObjects);
+        //else
+        //    objectId = *existingObjects.begin();
 
-        SemanticObject &obj = objectList.at(objectId);
-        int fittingShapeInd = findFittingExistingShape(obj.shapes, pg);
-        if (fittingShapeInd < 0)
+        for (size_t objectId : existingObjects)
         {
-            ROS_INFO("No fitting shape found, creating new");
-            // not fitting shape found, create new shape
-            point shape_centroid;
-            bg::centroid(pg, shape_centroid);
-            obj.shapes.push_back({pg, shape_centroid, 1});
-            addToMean(obj.centroid_mean, shape_centroid, obj.shapes.size());
 
-            if (obj.shapes.size() > MAX_SHAPES) // delete least consistent shape
-                deleteLeastConsistentShape(objectId);
+            SemanticObject &obj = objectList.at(objectId);
+            int fittingShapeInd = findFittingExistingShape(obj.shapes, pg);
+            if (fittingShapeInd < 0)
+            {
+                ROS_INFO("No fitting shape found, creating new");
+                // not fitting shape found, create new shape
+                point shape_centroid;
+                bg::centroid(pg, shape_centroid);
+                obj.shapes.push_back({pg, shape_centroid, 1});
+                addToMean(obj.centroid_mean, shape_centroid, obj.shapes.size());
+
+                if (obj.shapes.size() > MAX_SHAPES) // delete least consistent shape
+                    deleteLeastConsistentShape(objectId);
+            }
+            else
+            {
+                ROS_INFO_STREAM("Fitting shape found: " << fittingShapeInd);
+                UncertainShape &shape = obj.shapes[fittingShapeInd];
+                // add evidence to shape
+                // TODO: maybe update shape (union)
+                //multi_polygon un;
+                //bg::union_(shape.shape, pg, un);
+                //shape.shape = un[0];
+
+                //multi_point obj_cloud;
+                //addToPointCloud(obj_cloud, shape.shape);
+                //addToPointCloud(obj_cloud, pg);
+                //bg::correct(obj_cloud);
+                //bg::convex_hull(obj_cloud, shape.shape);
+                //bg::correct(shape.shape);
+
+                pcl::PointCloud<pcl::PointXYZ>::Ptr obj_cloud (new pcl::PointCloud<pcl::PointXYZ> ());
+                addToPointCloud(obj_cloud, shape.shape);
+                addToPointCloud(obj_cloud, pg);
+                shape.shape = computeConvexHullPcl(obj_cloud);
+                removeFromMean(obj.centroid_mean, shape.centroid, obj.shapes.size() - 1);
+                bg::centroid(shape.shape, shape.centroid);
+                addToMean(obj.centroid_mean, shape.centroid, obj.shapes.size());
+
+                //ROS_INFO_STREAM("Fitting shape: " << bg::wkt(obj.shapes[fittingShapeInd].shape));
+                //ROS_INFO_STREAM("Certainty: " << obj.shapes[fittingShapeInd].certainty);
+                shape.certainty++;
+                if (shape.certainty > 20)
+                    shape.certainty = 20;
+
+                //ROS_INFO_STREAM("Certainty increased: " << obj.shapes[fittingShapeInd].certainty);
+            }
+            updateUnion(objectId);
+            obj.exist_certainty++;
+            if (obj.exist_certainty > 20)
+                obj.exist_certainty = 20;
+
         }
-        else
-        {
-            ROS_INFO_STREAM("Fitting shape found: " << fittingShapeInd);
-            UncertainShape &shape = obj.shapes[fittingShapeInd];
-            // add evidence to shape
-            // TODO: maybe update shape (union)
-            //multi_polygon un;
-            //bg::union_(shape.shape, pg, un);
-            //shape.shape = un[0];
-
-            //multi_point obj_cloud;
-            //addToPointCloud(obj_cloud, shape.shape);
-            //addToPointCloud(obj_cloud, pg);
-            //bg::correct(obj_cloud);
-            //bg::convex_hull(obj_cloud, shape.shape);
-            //bg::correct(shape.shape);
-
-            pcl::PointCloud<pcl::PointXYZ>::Ptr obj_cloud (new pcl::PointCloud<pcl::PointXYZ> ());
-            addToPointCloud(obj_cloud, shape.shape);
-            addToPointCloud(obj_cloud, pg);
-            shape.shape = computeConvexHullPcl(obj_cloud);
-            removeFromMean(obj.centroid_mean, shape.centroid, obj.shapes.size() - 1);
-            bg::centroid(shape.shape, shape.centroid);
-            addToMean(obj.centroid_mean, shape.centroid, obj.shapes.size());
-
-            //ROS_INFO_STREAM("Fitting shape: " << bg::wkt(obj.shapes[fittingShapeInd].shape));
-            //ROS_INFO_STREAM("Certainty: " << obj.shapes[fittingShapeInd].certainty);
-            shape.certainty++;
-            if (shape.certainty > 20)
-                shape.certainty = 20;
-
-            //ROS_INFO_STREAM("Certainty increased: " << obj.shapes[fittingShapeInd].certainty);
-        }
-        updateUnion(objectId);
-        obj.exist_certainty++;
-        if (obj.exist_certainty > 20)
-            obj.exist_certainty = 20;
     }
 }
 
