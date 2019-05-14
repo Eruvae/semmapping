@@ -15,7 +15,12 @@
 #include <pcl/surface/concave_hull.h>
 #include <pcl/surface/convex_hull.h>
 #include <pcl/filters/voxel_grid.h>
-//#include <pcl/visualization/cloud_viewer.h>
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#include <pcl/visualization/cloud_viewer.h>
+#pragma GCC diagnostic pop
+
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -54,6 +59,8 @@ ros::Publisher completeAreaPgPub;
 ros::Publisher semanticMapPub;
 
 semmapping::SemanticMap map;
+
+pcl::visualization::CloudViewer viewer ("Cluster viewer");
 
 inline bool operator==(const geometry_msgs::Vector3 &lhs, const geometry_msgs::Vector3 &rhs)
 {
@@ -446,8 +453,8 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     }
 
     reg.setInputNormals (normals);
-    reg.setSmoothnessThreshold (3.0 / 180.0 * M_PI);
-    reg.setCurvatureThreshold (1.0);
+    reg.setSmoothnessThreshold (20.0 / 180.0 * M_PI);
+    reg.setCurvatureThreshold (100.0);
 
     std::vector <pcl::PointIndices> clusters;
     reg.extract (clusters);
@@ -459,12 +466,20 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     std::cout << std::endl;
 
 
-    /*pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
-    pcl::visualization::CloudViewer viewer ("Cluster viewer");
-    viewer.showCloud(colored_cloud);
-    while (!viewer.wasStopped ())
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
+    //pcl::visualization::CloudViewer viewer ("Cluster viewer");
+    if (colored_cloud)
     {
-    }*/
+        viewer.showCloud(colored_cloud);
+        viewer.runOnVisualizationThreadOnce([name = box.Class](pcl::visualization::PCLVisualizer &vis)
+        {
+            vis.updateText(name, 0, 20, "ClassLabel");
+        }
+        );
+    }
+    //while (!viewer.wasStopped ())
+    //{
+    //}
 
     size_t maxInd = 0, maxSize = 0;
     for (size_t i = 0; i < clusters.size(); i++)
@@ -801,6 +816,12 @@ int main(int argc, char **argv)
   observationPgPub = nh.advertise<geometry_msgs::PolygonStamped>("observation_pg", 1);
   completeAreaPgPub = nh.advertise<geometry_msgs::PolygonStamped>("complete_area_pg", 1);
   semanticMapPub = nh.advertise<hypermap_msgs::SemanticMap>("semantic_map", 1);
+
+  viewer.runOnVisualizationThreadOnce([](pcl::visualization::PCLVisualizer &vis)
+  {
+      vis.addText("No Class", 0, 20, "ClassLabel");
+  }
+  );
 
   ros::AsyncSpinner spinner(4);
   spinner.start();
