@@ -152,7 +152,8 @@ void SemanticMap::updateUnion(size_t id)
     {
         return ent.second == id;
     });*/
-    obj.bounding_box = getSearchBox(obj.shape_union); //bg::return_envelope<box>(obj.shape_union);
+    //obj.bounding_box = getSearchBox(obj.shape_union);
+    obj.bounding_box = bg::return_envelope<box>(obj.shape_union);
     objectRtree.insert(std::make_pair(obj.bounding_box, id));
 }
 
@@ -178,7 +179,7 @@ size_t SemanticMap::combineObjects(std::set<size_t> objects)
 }
 
 // V1
-/*void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
+void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
 {
     //ROS_INFO_STREAM("Collecting existing objects in shape: " << bg::wkt(pg));
     std::set<size_t> existingObjects = getObjectsByNameInRange(name, pg);//getObjectsInRange(pg);
@@ -192,56 +193,71 @@ size_t SemanticMap::combineObjects(std::set<size_t> objects)
     else
     {
         ROS_INFO_STREAM("Number of fitting objects: " << existingObjects.size());
-        size_t objectId = *existingObjects.begin();
+        //size_t objectId = *existingObjects.begin();
         // if more than one object fits, combine objects
-        if (existingObjects.size() > 1)
-        {
-            objectId = combineObjects(existingObjects);
-        }
-        // add evidence to object
-        //for (size_t objectId : existingObjects)
+        //if (existingObjects.size() > 1)
         //{
-        SemanticObject &obj = objectList.at(objectId);
-        int fittingShapeInd = findFittingExistingShape(obj.shapes, pg);
-        if (fittingShapeInd < 0)
-        {
-            ROS_INFO("No fitting shape found, creating new");
-            // not fitting shape found, create new shape
-            //if (obj.shapes.size() >= MAX_SHAPES)
-            //{
-            //    // delete least consistent shape
-            //    deleteLeastConsistentShape(objectId);
-            //}
-            obj.shapes.push_back({pg, 1});
-        }
-        else
-        {
-            ROS_INFO_STREAM("Fitting shape found: " << fittingShapeInd);
-            // add evidence to shape
-            // TODO: maybe update shape (union)
-            multi_polygon un;
-            UncertainShape &shape = obj.shapes[fittingShapeInd];
-            bg::union_(shape.shape, pg, un);
-            shape.shape = un[0];
-            //ROS_INFO_STREAM("Fitting shape: " << bg::wkt(obj.shapes[fittingShapeInd].shape));
-            //ROS_INFO_STREAM("Certainty: " << obj.shapes[fittingShapeInd].certainty);
-            shape.certainty++;
-            if (shape.certainty > 20)
-                shape.certainty = 20;
-
-            //ROS_INFO_STREAM("Certainty increased: " << obj.shapes[fittingShapeInd].certainty);
-        }
-        updateUnion(objectId);
-        obj.exist_certainty++;
-        if (obj.exist_certainty > 20)
-            obj.exist_certainty = 20;
-        //ROS_INFO_STREAM("Exist certainty increased: " << obj.exist_certainty);
+        //    objectId = combineObjects(existingObjects);
         //}
+        // add evidence to object
+        for (size_t objectId : existingObjects)
+        {
+            SemanticObject &obj = objectList.at(objectId);
+            int fittingShapeInd = findFittingExistingShape(obj.shapes, pg);
+            if (fittingShapeInd < 0)
+            {
+                ROS_INFO("No fitting shape found, creating new");
+                // not fitting shape found, create new shape
+                //if (obj.shapes.size() >= MAX_SHAPES)
+                //{
+                //    // delete least consistent shape
+                //    deleteLeastConsistentShape(objectId);
+                //}
+                point shape_centroid;
+                bg::centroid(pg, shape_centroid);
+                obj.shapes.push_back({pg, shape_centroid, 1});
+                addToMean(obj.centroid_mean, shape_centroid, obj.shapes.size());
+
+                if (obj.shapes.size() > MAX_SHAPES) // delete least consistent shape
+                    deleteLeastConsistentShape(objectId);
+            }
+            else
+            {
+                ROS_INFO_STREAM("Fitting shape found: " << fittingShapeInd);
+                UncertainShape &shape = obj.shapes[fittingShapeInd];
+
+                // add evidence to shape
+                //multi_polygon un;
+                //bg::union_(shape.shape, pg, un);
+                //shape.shape = un[0];
+                pcl::PointCloud<pcl::PointXYZ>::Ptr obj_cloud (new pcl::PointCloud<pcl::PointXYZ> ());
+                addToPointCloud(obj_cloud, shape.shape);
+                addToPointCloud(obj_cloud, pg);
+                shape.shape = computeConvexHullPcl(obj_cloud);
+
+                removeFromMean(obj.centroid_mean, shape.centroid, obj.shapes.size() - 1);
+                bg::centroid(shape.shape, shape.centroid);
+                addToMean(obj.centroid_mean, shape.centroid, obj.shapes.size());
+
+                //ROS_INFO_STREAM("Fitting shape: " << bg::wkt(obj.shapes[fittingShapeInd].shape));
+                //ROS_INFO_STREAM("Certainty: " << obj.shapes[fittingShapeInd].certainty);
+                shape.certainty++;
+                if (shape.certainty > 20)
+                    shape.certainty = 20;
+
+                //ROS_INFO_STREAM("Certainty increased: " << obj.shapes[fittingShapeInd].certainty);
+            }
+            updateUnion(objectId);
+            obj.exist_certainty++;
+            if (obj.exist_certainty > 20)
+                obj.exist_certainty = 20;
+            //ROS_INFO_STREAM("Exist certainty increased: " << obj.exist_certainty);
+        }
     }
-}*/
+}
 
 //V2
-void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
+/*void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
 {
     box searchArea = getSearchBox(pg);
     std::set<size_t> existingObjects = getObjectsByNameInRange(name, searchArea);
@@ -315,7 +331,13 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
 
         }
     }
-}
+}*/
+
+// Add all seperately for debug
+/*void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
+{
+    addNewObject(name, pg);
+}*/
 
 void SemanticMap::removeEvidence(const polygon &visibilityArea)
 {
@@ -367,7 +389,8 @@ void SemanticMap::addNewObject(const std::string name, const polygon &initial_sh
     obj.exist_certainty = 1;
     obj.shape_union = initial_shape;
     obj.centroid_mean = shape_centroid;
-    obj.bounding_box = getSearchBox(obj.shape_union); //bg::return_envelope<box>(obj.shape_union);
+    //obj.bounding_box = getSearchBox(obj.shape_union);
+    obj.bounding_box = bg::return_envelope<box>(obj.shape_union);
 
     ROS_INFO("Adding object to map");
     objectList[next_index] = obj;

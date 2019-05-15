@@ -10,6 +10,7 @@
 #include <pcl/search/kdtree.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/segmentation/region_growing.h>
+#include <pcl/segmentation/extract_clusters.h>
 #include <pcl/filters/project_inliers.h>
 #include <pcl/ModelCoefficients.h>
 #include <pcl/surface/concave_hull.h>
@@ -437,6 +438,21 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
         }
     }*/
 
+    /*pcl::EuclideanClusterExtraction<pcl::PointXYZ> euc;
+    euc.setMinClusterSize(50);
+    euc.setMaxClusterSize(1000000);
+    euc.setSearchMethod(tree);
+    euc.setInputCloud(cloud);
+    euc.setIndices(box.ymin, box.xmin, box.ymax - box.ymin, box.xmax - box.xmin);
+
+    if (euc.getIndices()->size() == 0)
+    {
+        ROS_WARN("No points in point cloud within bounding box");
+        return nullptr;
+    }
+
+    euc.setClusterTolerance(0.02);*/
+
     pcl::RegionGrowing<pcl::PointXYZ, pcl::Normal> reg;
     reg.setMinClusterSize (50);
     reg.setMaxClusterSize (1000000);
@@ -444,7 +460,7 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     reg.setNumberOfNeighbours (30);
     reg.setInputCloud (cloud);
     //reg.setIndices (indices);
-    reg.setIndices(box.ymin, box.xmin, box.ymax - box.ymin/* + 1*/, box.xmax - box.xmin/* + 1*/);
+    reg.setIndices(box.ymin, box.xmin, box.ymax - box.ymin, box.xmax - box.xmin);
 
     if (reg.getIndices()->size() == 0)
     {
@@ -454,10 +470,17 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
 
     reg.setInputNormals (normals);
     reg.setSmoothnessThreshold (20.0 / 180.0 * M_PI);
-    reg.setCurvatureThreshold (100.0);
+    reg.setCurvatureThreshold (1.0);
+
+    //int xcent = (box.xmin + box.xmax) / 2;
+    //int ycent = (box.ymin + box.ymax) / 2;
+    //int centerIndex = ycent  * cloud->width + xcent;
+    //pcl::PointIndices::Ptr centerCluster(new pcl::PointIndices);
+    //reg.getSegmentFromPoint(centerIndex, *centerCluster);
 
     std::vector <pcl::PointIndices> clusters;
     reg.extract (clusters);
+    //euc.extract (clusters);
 
     std::cout << "Number of clusters is equal to " << clusters.size() << std::endl;
     std::cout << "Cluster sizes: ";
@@ -466,7 +489,7 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     std::cout << std::endl;
 
 
-    pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
+    /*pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
     //pcl::visualization::CloudViewer viewer ("Cluster viewer");
     if (colored_cloud)
     {
@@ -476,10 +499,7 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
             vis.updateText(name, 0, 20, "ClassLabel");
         }
         );
-    }
-    //while (!viewer.wasStopped ())
-    //{
-    //}
+    }*/
 
     size_t maxInd = 0, maxSize = 0;
     for (size_t i = 0; i < clusters.size(); i++)
@@ -494,6 +514,8 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     pcl::PointIndices::Ptr res(new pcl::PointIndices);
     *res = std::move(clusters[maxInd]);
     return res;
+
+    //return centerCluster;
 }
 
 geometry_msgs::Vector3Stamped::Ptr toVectorMsg(const cv::Point3d &point, const image_geometry::PinholeCameraModel &cam)
