@@ -134,6 +134,7 @@ public:
   hypermap_msgs::SemanticMap::Ptr createMapMessage();
 
   bool writeMapData(std::ostream &output);
+  bool readMapData(std::istream &input);
 };
 
 }

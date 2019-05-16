@@ -23,7 +23,8 @@ void SemanticMap::filterIntersectionThresh(std::set<size_t> &object_list, const 
     for (auto it = object_list.begin(); it != object_list.end(); )
     {
         const SemanticObject &obj = objectList.at(*it);
-        if (ref_fit(pg, obj.shape_union) < FIT_THRESH)
+        //if (ref_fit(pg, obj.shape_union) < FIT_THRESH)
+        if (union_fit(pg, obj.shape_union) < FIT_THRESH)
         {
             it = object_list.erase(it);
             ROS_INFO("Object removed");
@@ -106,13 +107,14 @@ void SemanticMap::updateUnion(size_t id)
     multi_polygon un;
     ROS_INFO_STREAM("Shape count: " << obj.shapes.size());
 
-    //size_t best_shape_ind = 0;
-    //double best_shape_cert = DBL_MIN;
+    size_t best_shape_ind = 0;
+    double best_shape_cert = -DBL_MAX;
+    double min_dist = DBL_MAX;
 
     //multi_point obj_cloud;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr obj_cloud (new pcl::PointCloud<pcl::PointXYZ> ());
+    //pcl::PointCloud<pcl::PointXYZ>::Ptr obj_cloud (new pcl::PointCloud<pcl::PointXYZ> ());
 
-    //size_t i = 0;
+    size_t i = 0;
     for (const UncertainShape &shape : obj.shapes)
     {
         //if (i->certainty > MIN_CERTAINTY)
@@ -123,14 +125,16 @@ void SemanticMap::updateUnion(size_t id)
 
         //un.push_back(shape.shape);
 
-        addToPointCloud(obj_cloud, shape.shape);
+        //addToPointCloud(obj_cloud, shape.shape);
 
+        double dist = bg::distance(obj.centroid_mean, shape.centroid);
+        if (dist < min_dist)
         //if (shape.certainty > best_shape_cert)
-        //{
-        //    best_shape_cert = shape.certainty;
-        //    best_shape_ind = i;
-        //}
-        //i++;
+        {
+            best_shape_cert = shape.certainty;
+            best_shape_ind = i;
+        }
+        i++;
     }
     ROS_INFO_STREAM("Union size: " << un.size());
     //ROS_INFO_STREAM("Union: " << bg::wkt(un));
@@ -142,9 +146,13 @@ void SemanticMap::updateUnion(size_t id)
     //bg::convex_hull(obj_cloud, obj.shape_union);
     //bg::correct(obj.shape_union);
 
-    obj.shape_union = computeConvexHullPcl(obj_cloud);
+    //obj.shape_union = computeConvexHullPcl(obj_cloud);
 
-    //obj.shape_union = obj.shapes[best_shape_ind].shape;
+    //point cent_dif = obj.centroid_mean;
+    //bg::subtract_point(cent_dif, obj.shapes[best_shape_ind].centroid);
+    //bg::strategy::transform::translate_transformer<double, 2, 2> trans(cent_dif.x(), cent_dif.y());
+    //bg::transform(obj.shapes[best_shape_ind].shape, obj.shape_union, trans);
+    obj.shape_union = obj.shapes[best_shape_ind].shape;
 
     //ROS_INFO("Updating bounding box");
     objectRtree.remove(std::make_pair(obj.bounding_box, id));
@@ -218,8 +226,8 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
                 obj.shapes.push_back({pg, shape_centroid, 1});
                 addToMean(obj.centroid_mean, shape_centroid, obj.shapes.size());
 
-                if (obj.shapes.size() > MAX_SHAPES) // delete least consistent shape
-                    deleteLeastConsistentShape(objectId);
+                //if (obj.shapes.size() > MAX_SHAPES) // delete least consistent shape
+                //    deleteLeastConsistentShape(objectId);
             }
             else
             {
@@ -478,7 +486,7 @@ hypermap_msgs::SemanticMap::Ptr SemanticMap::createMapMessage()
     for (auto val : objectList)
     {
         const SemanticObject &obj = val.second;
-        if (obj.exist_certainty > 1)
+        if (obj.exist_certainty > 2)
         {
             hypermap_msgs::SemanticObject obj_msg;
             obj_msg.id = val.first;
@@ -534,6 +542,47 @@ bool SemanticMap::writeMapData(std::ostream &output)
         map.push_back(n);
     }
     output << map;
+    return true;
+}
+
+bool SemanticMap::readMapData(std::istream &input)
+{
+    YAML::Node map = YAML::Load(input);
+    for (const YAML::Node &entry : map)
+    {
+        SemanticObject obj;
+        obj.name = entry["name"].as<std::string>();
+        obj.exist_certainty = entry["exist_certainty"].as<double>();
+        for (const YAML::Node &s : entry["shapes"])
+        {
+            UncertainShape us;
+            try
+            {
+                bg::read_wkt(s["shape"].as<std::string>(), us.shape);
+            }
+            catch (const bg::read_wkt_exception &e)
+            {
+                ROS_ERROR_STREAM("Error reading object shape: " << e.what());
+                return false;
+            }
+            bg::correct(us.shape);
+            bg::centroid(us.shape, us.centroid);
+            us.certainty = s["certainty"].as<double>();
+            obj.shapes.push_back(us);
+            addToMean(obj.centroid_mean, us.centroid, obj.shapes.size());
+        }
+        try
+        {
+            bg::read_wkt(entry["shape_union"].as<std::string>(), obj.shape_union);
+        }
+        catch (const bg::read_wkt_exception &e)
+        {
+            ROS_ERROR_STREAM("Error reading object shape: " << e.what());
+            return false;
+        }
+        bg::correct(obj.shape_union);
+        obj.bounding_box = bg::return_envelope<box>(obj.shape_union);
+    }
     return true;
 }
 
