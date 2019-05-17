@@ -211,10 +211,10 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
         for (size_t objectId : existingObjects)
         {
             SemanticObject &obj = objectList.at(objectId);
-            int fittingShapeInd = findFittingExistingShape(obj.shapes, pg);
-            if (fittingShapeInd < 0)
-            {
-                ROS_INFO("No fitting shape found, creating new");
+            //int fittingShapeInd = findFittingExistingShape(obj.shapes, pg);
+            //if (fittingShapeInd < 0)
+            //{
+                //ROS_INFO("No fitting shape found, creating new");
                 // not fitting shape found, create new shape
                 //if (obj.shapes.size() >= MAX_SHAPES)
                 //{
@@ -224,11 +224,25 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
                 point shape_centroid;
                 bg::centroid(pg, shape_centroid);
                 obj.shapes.push_back({pg, shape_centroid, 1});
+                bg::add_point(obj.centroid_sum, shape_centroid);
+                bg::add_point(obj.centroid_sum_sq, point_square(shape_centroid));
                 addToMean(obj.centroid_mean, shape_centroid, obj.shapes.size());
+
+                point mean_from_sum = get_mean(obj.centroid_sum, obj.shapes.size());
+                point standard_deviation = get_std(obj.centroid_sum, obj.centroid_sum_sq, obj.shapes.size());
+
+                size_t i = 1;
+                for (const UncertainShape &s : obj.shapes)
+                {
+                    ROS_INFO_STREAM("Point " << i++ << ": " << bg::wkt(s.centroid));
+                }
+
+                ROS_INFO_STREAM("Mean: " << bg::wkt(obj.centroid_mean) << "; " << bg::wkt(mean_from_sum));
+                ROS_INFO_STREAM("Standard deviation: " << bg::wkt(standard_deviation));
 
                 //if (obj.shapes.size() > MAX_SHAPES) // delete least consistent shape
                 //    deleteLeastConsistentShape(objectId);
-            }
+            /*}
             else
             {
                 ROS_INFO_STREAM("Fitting shape found: " << fittingShapeInd);
@@ -254,7 +268,7 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
                     shape.certainty = 20;
 
                 //ROS_INFO_STREAM("Certainty increased: " << obj.shapes[fittingShapeInd].certainty);
-            }
+            }*/
             updateUnion(objectId);
             obj.exist_certainty++;
             if (obj.exist_certainty > 20)
@@ -396,6 +410,8 @@ void SemanticMap::addNewObject(const std::string name, const polygon &initial_sh
     obj.shapes.push_back({initial_shape, shape_centroid, 1});
     obj.exist_certainty = 1;
     obj.shape_union = initial_shape;
+    obj.centroid_sum = shape_centroid;
+    obj.centroid_sum_sq = point_square(shape_centroid);
     obj.centroid_mean = shape_centroid;
     //obj.bounding_box = getSearchBox(obj.shape_union);
     obj.bounding_box = bg::return_envelope<box>(obj.shape_union);
@@ -539,6 +555,15 @@ bool SemanticMap::writeMapData(std::ostream &output)
         std::ostringstream sh;
         sh << bg::wkt(obj.shape_union);
         n["shape_union"] = sh.str();
+        std::ostringstream cent;
+        cent << bg::wkt(obj.centroid_mean);
+        n["centroid_mean"] = cent.str();
+        std::ostringstream sum;
+        sum << bg::wkt(obj.centroid_sum);
+        n["centroid_sum"] = sum.str();
+        std::ostringstream sumsqr;
+        sumsqr << bg::wkt(obj.centroid_sum_sq);
+        n["centroid_sum_sq"] = sumsqr.str();
         map.push_back(n);
     }
     output << map;
@@ -569,6 +594,8 @@ bool SemanticMap::readMapData(std::istream &input)
             bg::centroid(us.shape, us.centroid);
             us.certainty = s["certainty"].as<double>();
             obj.shapes.push_back(us);
+            bg::add_point(obj.centroid_sum, us.centroid);
+            bg::add_point(obj.centroid_sum_sq, point_square(us.centroid));
             addToMean(obj.centroid_mean, us.centroid, obj.shapes.size());
         }
         try

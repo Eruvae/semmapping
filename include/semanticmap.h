@@ -26,6 +26,8 @@ struct SemanticObject
   std::vector<UncertainShape> shapes;
   double exist_certainty;
   polygon shape_union;
+  point centroid_sum;
+  point centroid_sum_sq;
   point centroid_mean;
   box bounding_box;
   //std::vector<std::string> tags;
@@ -54,6 +56,21 @@ class SemanticMap
       multi_polygon sect;
       bg::intersection(a, b, sect);
       return bg::area(sect) / bg::area(un);
+  }
+
+  inline static point point_square(const point &p)
+  {
+      return point(p.x()*p.x(), p.y()*p.y());
+  }
+
+  inline static point get_mean(const point &sum, size_t n)
+  {
+      return point(sum.x()/n, sum.y()/n);
+  }
+
+  inline static point get_std(const point &sum, const point &sum_sq, size_t n)
+  {
+      return point((sum_sq.x() - sum.x()*sum.x()/n) / n, (sum_sq.y() - sum.y()*sum.y()/n) / n);
   }
 
   inline static void addToMean(point &mean, const point &toAdd, size_t n)
