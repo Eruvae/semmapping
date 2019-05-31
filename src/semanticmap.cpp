@@ -177,6 +177,9 @@ size_t SemanticMap::combineObjects(std::set<size_t> objects)
         SemanticObject &toMerge = objectList.at(*it);
         combinedObj.shapes.insert(combinedObj.shapes.end(), toMerge.shapes.begin(), toMerge.shapes.end());
         combinedObj.exist_certainty += toMerge.exist_certainty;
+        bg::add_point(combinedObj.centroid_sum, toMerge.centroid_sum);
+        bg::add_point(combinedObj.centroid_sum_sq, toMerge.centroid_sum_sq);
+        combinedObj.centroid_mean = get_mean(combinedObj.centroid_sum, combinedObj.shapes.size());
         if (combinedObj.exist_certainty > 20)
             combinedObj.exist_certainty = 20;
 
@@ -201,15 +204,15 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
     else
     {
         ROS_INFO_STREAM("Number of fitting objects: " << existingObjects.size());
-        //size_t objectId = *existingObjects.begin();
+        size_t objectId = *existingObjects.begin();
         // if more than one object fits, combine objects
-        //if (existingObjects.size() > 1)
-        //{
-        //    objectId = combineObjects(existingObjects);
-        //}
-        // add evidence to object
-        for (size_t objectId : existingObjects)
+        if (existingObjects.size() > 1)
         {
+            objectId = combineObjects(existingObjects);
+        }
+        // add evidence to object
+        //for (size_t objectId : existingObjects)
+        //{
             SemanticObject &obj = objectList.at(objectId);
             //int fittingShapeInd = findFittingExistingShape(obj.shapes, pg);
             //if (fittingShapeInd < 0)
@@ -274,7 +277,7 @@ void SemanticMap::addEvidence(const std::string &name, const polygon &pg)
             if (obj.exist_certainty > 20)
                 obj.exist_certainty = 20;
             //ROS_INFO_STREAM("Exist certainty increased: " << obj.exist_certainty);
-        }
+        //}
     }
 }
 
