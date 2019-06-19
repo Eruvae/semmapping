@@ -94,6 +94,8 @@ void SemanticMap::deleteLeastConsistentShape(size_t id)
     updateUnion(obj);
 }*/
 
+
+// Use best shape
 void SemanticMap::updateUnion(size_t id)
 {
     SemanticObject &obj = objectList.at(id);
@@ -156,14 +158,73 @@ void SemanticMap::updateUnion(size_t id)
 
     //ROS_INFO("Updating bounding box");
     objectRtree.remove(std::make_pair(obj.bounding_box, id));
-    /*std::remove_if(objectRtree.begin(), objectRtree.end(), [id](rtree_entry &ent) // works only with boost >= 1.59
-    {
-        return ent.second == id;
-    });*/
+    //std::remove_if(objectRtree.begin(), objectRtree.end(), [id](rtree_entry &ent) // works only with boost >= 1.59
+    //{
+    //    return ent.second == id;
+    //});
     //obj.bounding_box = getSearchBox(obj.shape_union);
     obj.bounding_box = bg::return_envelope<box>(obj.shape_union);
     objectRtree.insert(std::make_pair(obj.bounding_box, id));
 }
+
+// Combine shapes
+/*void SemanticMap::updateUnion(size_t id)
+{
+    SemanticObject &obj = objectList.at(id);
+    ROS_INFO("Calculating union");
+    if (obj.shapes.size() < 1)
+    {
+        ROS_ERROR("Semantic object has no shape");
+        return;
+    }
+    //ROS_INFO_STREAM("First shape: " << bg::wkt(obj.shapes[0].shape));
+    multi_polygon un;
+    ROS_INFO_STREAM("Shape count: " << obj.shapes.size());
+
+    //multi_point obj_cloud;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr obj_cloud (new pcl::PointCloud<pcl::PointXYZ> ());
+
+    for (const UncertainShape &shape : obj.shapes)
+    {
+        //if (i->certainty > MIN_CERTAINTY)
+
+        //multi_polygon res;
+        //bg::union_(un, shape.shape, res);
+        //un = std::move(res);
+
+        //un.push_back(shape.shape);
+
+        addToPointCloud(obj_cloud, shape.shape);
+
+    }
+    ROS_INFO_STREAM("Union size: " << un.size());
+    //ROS_INFO_STREAM("Union: " << bg::wkt(un));
+    //obj.shape_union = un[0];
+
+    //bg::convex_hull(un, obj.shape_union);
+
+    //bg::correct(obj_cloud);
+    //bg::convex_hull(obj_cloud, obj.shape_union);
+    //bg::correct(obj.shape_union);
+
+    obj.shape_union = computeConvexHullPcl(obj_cloud);
+
+    //point cent_dif = obj.centroid_mean;
+    //bg::subtract_point(cent_dif, obj.shapes[best_shape_ind].centroid);
+    //bg::strategy::transform::translate_transformer<double, 2, 2> trans(cent_dif.x(), cent_dif.y());
+    //bg::transform(obj.shapes[best_shape_ind].shape, obj.shape_union, trans);
+    //obj.shape_union = obj.shapes[best_shape_ind].shape;
+
+    //ROS_INFO("Updating bounding box");
+    objectRtree.remove(std::make_pair(obj.bounding_box, id));
+    //std::remove_if(objectRtree.begin(), objectRtree.end(), [id](rtree_entry &ent) // works only with boost >= 1.59
+    //{
+    //    return ent.second == id;
+    //});
+    //obj.bounding_box = getSearchBox(obj.shape_union);
+    obj.bounding_box = bg::return_envelope<box>(obj.shape_union);
+    objectRtree.insert(std::make_pair(obj.bounding_box, id));
+}*/
 
 size_t SemanticMap::combineObjects(std::set<size_t> objects)
 {
