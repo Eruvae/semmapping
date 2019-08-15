@@ -62,6 +62,7 @@
   <depend>darknet_ros_msgs</depend>
   <depend>image_geometry</depend>
   <depend>laser_geometry</depend>
+  <depend>yolact_ros</depend>
   <build_depend>libpcl-all-dev</build_depend>
   <exec_depend>libpcl-all</exec_depend>
 

@@ -48,6 +48,7 @@
 #include "darknet_ros_msgs/BoundingBoxes.h"
 #include "hypermap_msgs/SemanticMap.h"
 #include <geometry_msgs/PolygonStamped.h>
+#include "yolact_ros/Detections.h"
 
 #include "boxsyncpolicy.h"
 #include "semanticmap.h"
@@ -518,6 +519,23 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     //return centerCluster;
 }
 
+pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const yolact_ros::Detection det)
+{
+    pcl::PointIndices::Ptr res(new pcl::PointIndices);
+
+    for (int x = det.box.x1; x <= det.box.x2; x++)
+    {
+      for (int y = det.box.y1; y <= det.box.y2; y++)
+      {
+        if (det.mask.mask[(y - det.box.y1) * det.mask.width + (x - det.box.x1)])
+        {
+          res->indices.push_back(y * cloud->width + x);
+        }
+      }
+    }
+    return res;
+}
+
 geometry_msgs::Vector3Stamped::Ptr toVectorMsg(const cv::Point3d &point, const image_geometry::PinholeCameraModel &cam)
 {
     geometry_msgs::Vector3Stamped::Ptr vec(new geometry_msgs::Vector3Stamped);
@@ -611,6 +629,90 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
         detectedPgPub.publish(message);
 
         map.addEvidence(box.Class, res_pg);
+    }
+
+    semmapping::polygon comp_area = getCompleteAreaPg(pclCloud);
+    if (comp_area.outer().size() > 0)
+    {
+        geometry_msgs::PolygonStamped comp_area_msg;
+        comp_area_msg.polygon = semmapping::boostToPolygonMsg(comp_area);
+        comp_area_msg.header.frame_id = "map";
+        comp_area_msg.header.stamp = cloud->header.stamp;
+        completeAreaPgPub.publish(comp_area_msg);
+
+        map.removeEvidence(comp_area);
+    }
+
+    hypermap_msgs::SemanticMap::Ptr map_msg = map.createMapMessage();
+    semanticMapPub.publish(map_msg);
+}
+
+void processDetections(const sensor_msgs::PointCloud2::Ptr &cloud, const yolact_ros::Detections::ConstPtr &detections)
+{
+    ROS_INFO("Detection received");
+    static Eigen::Affine3d lastCamPose;
+    geometry_msgs::TransformStamped camPose;
+    try
+    {
+        camPose = tfBuffer.lookupTransform("map", cloud->header.frame_id, cloud->header.stamp, ros::Duration(0));
+    }
+    catch (tf2::TransformException ex)
+    {
+        ROS_WARN_STREAM("Could not read transform: " << ex.what());
+        return;
+    }
+
+    Eigen::Affine3d camPoseEigen = tf2::transformToEigen(camPose.transform);
+
+    if (camPoseEigen.isApprox(lastCamPose, 1e-2))
+    {
+        ROS_INFO("Robot has not moved, not processing boxes");
+        return;
+    }
+
+    lastCamPose = camPoseEigen;
+
+
+    //ROS_INFO_STREAM("Time stamps comp - boxes: " << boxes->header.stamp << "; Image header: " << boxes->image_header.stamp << "; cloud: " << cloud->header.stamp);
+    //ROS_INFO_STREAM("Frames: " << boxes->image_header.frame_id << "; " << cloud->header.frame_id);
+    //tfBuffer.transform(*cloud, *cloud, "map");
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pclCloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::fromROSMsg(*cloud, *pclCloud);
+
+    if (pclCloud->empty())
+    {
+        ROS_WARN("Point cloud is empty, not processing boxes");
+        return;
+    }
+
+    // pclCloud = downsampleCloud(pclCloud);
+
+
+    pcl::transformPointCloud(*pclCloud, *pclCloud, camPoseEigen);
+
+    for (const yolact_ros::Detection &det : detections->detections)
+    {
+        //std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
+        pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, det);
+        if (indices == nullptr || indices->indices.size() == 0)
+            continue;
+
+        //semmapping::polygon res_pg = get2DBoxInMap(pclCloud, indices);
+        semmapping::polygon res_pg = getPolygonInMap(pclCloud, indices);
+
+        if (res_pg.outer().empty())
+        {
+            ROS_WARN("Polygon in map could not be reconstructed");
+            continue;
+        }
+        // DEBUG: publish detected polygon
+        geometry_msgs::PolygonStamped message;
+        message.polygon = semmapping::boostToPolygonMsg(res_pg);
+        message.header.frame_id = "map";
+        message.header.stamp = cloud->header.stamp;
+        detectedPgPub.publish(message);
+
+        map.addEvidence(det.class_name, res_pg);
     }
 
     semmapping::polygon comp_area = getCompleteAreaPg(pclCloud);
@@ -792,6 +894,14 @@ void sigintHandler(int sig)
     exit(0);
 }
 
+//#define DARKNET
+#define YOLACT
+
+/*void detectionReceiveTest(const yolact_ros::Detections::ConstPtr &detections)
+{
+  ROS_INFO_STREAM("Detection received: " << detections->header.stamp);
+}*/
+
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "mapping");
@@ -801,38 +911,51 @@ int main(int argc, char **argv)
 
   message_filters::Subscriber<sensor_msgs::PointCloud2> depthCloudSub(nh, "/sensorring_cam3d/depth/points", 1);
   tf2_ros::MessageFilter<sensor_msgs::PointCloud2> tfCloudFilter(depthCloudSub, tfBuffer, "map", 20, nh);
-  message_filters::Subscriber<darknet_ros_msgs::BoundingBoxes> boundingBoxSub(nh, "/darknet_ros/bounding_boxes", 1);
 
-  message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfCloudFilter, boundingBoxSub);
+  #if defined DARKNET
+    ROS_INFO("Detector \"Darknet\" used");
+    message_filters::Subscriber<darknet_ros_msgs::BoundingBoxes> boundingBoxSub(nh, "/darknet_ros/bounding_boxes", 1);
 
-  //message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, "/sensorring_cam3d/depth/camera_info", 1);
-  //tf2_ros::MessageFilter<sensor_msgs::CameraInfo> tfCamFilter(cameraInfoSub, tfBuffer, "map", 10, nh);
+    message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfCloudFilter, boundingBoxSub);
 
-  //message_filters::Subscriber<sensor_msgs::LaserScan> laserScanSub(nh, "/scan_unified", 1);
+    //message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, "/sensorring_cam3d/depth/camera_info", 1);
+    //tf2_ros::MessageFilter<sensor_msgs::CameraInfo> tfCamFilter(cameraInfoSub, tfBuffer, "map", 10, nh);
 
-  //typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::CameraInfo, sensor_msgs::LaserScan> CamLaserSyncPolicy;
-  //message_filters::Synchronizer<CamLaserSyncPolicy> syncCamLaser(CamLaserSyncPolicy(10), tfCamFilter, laserScanSub);
+    //message_filters::Subscriber<sensor_msgs::LaserScan> laserScanSub(nh, "/scan_unified", 1);
 
-  sync.registerCallback(processBoxes);
-  //syncCamLaser.registerCallback(removeMissing);
+    //typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::CameraInfo, sensor_msgs::LaserScan> CamLaserSyncPolicy;
+    //message_filters::Synchronizer<CamLaserSyncPolicy> syncCamLaser(CamLaserSyncPolicy(10), tfCamFilter, laserScanSub);
+
+    sync.registerCallback(processBoxes);
+    //syncCamLaser.registerCallback(removeMissing);
 
 
-  //tfFilter.registerCallback(processBoxes);
+    //tfFilter.registerCallback(processBoxes);
 
 
-  //tf2_ros::MessageFilter<sensor_msgs::PointCloud2> depthCloudFilter(depthCloudSub, tfBuffer, "map", 10, 0);
+    //tf2_ros::MessageFilter<sensor_msgs::PointCloud2> depthCloudFilter(depthCloudSub, tfBuffer, "map", 10, 0);
 
-  //ros::Subscriber depthImageSub = nh.subscribe("/sensorring_cam3d/depth/image_raw", 100, receiveDepthImage);
-  //ros::Subscriber boundingBoxSub = nh.subscribe("/darknet_ros/bounding_boxes", 100, receiveBoundingBoxes);
-  //ros::Subscriber depthCloudSub = nh.subscribe("/sensorring_cam3d/depth/points", 100, receiveDepthCloud);
-  //depthCloudSub.subscribe(nh, "/sensorring_cam3d/depth/points", 10);
+    //ros::Subscriber depthImageSub = nh.subscribe("/sensorring_cam3d/depth/image_raw", 100, receiveDepthImage);
+    //ros::Subscriber boundingBoxSub = nh.subscribe("/darknet_ros/bounding_boxes", 100, receiveBoundingBoxes);
+    //ros::Subscriber depthCloudSub = nh.subscribe("/sensorring_cam3d/depth/points", 100, receiveDepthCloud);
+    //depthCloudSub.subscribe(nh, "/sensorring_cam3d/depth/points", 10);
 
-  /*//ros::Subscriber depthImageSub = nh.subscribe("/gibson_ros/camera/depth/image", 100, receiveDepthImage);
-  ros::Subscriber boundingBoxSub = nh.subscribe("/darknet_ros/bounding_boxes", 100, receiveBoundingBoxes);
-  //ros::Subscriber depthCloudSub = nh.subscribe("/gibson_ros/camera/depth_registered/points", 100, receiveDepthCloud);
-  depthCloudSub.subscribe(nh, "/gibson_ros/camera/depth_registered/points", 10);*/
+    /*//ros::Subscriber depthImageSub = nh.subscribe("/gibson_ros/camera/depth/image", 100, receiveDepthImage);
+    ros::Subscriber boundingBoxSub = nh.subscribe("/darknet_ros/bounding_boxes", 100, receiveBoundingBoxes);
+    //ros::Subscriber depthCloudSub = nh.subscribe("/gibson_ros/camera/depth_registered/points", 100, receiveDepthCloud);
+    depthCloudSub.subscribe(nh, "/gibson_ros/camera/depth_registered/points", 10);*/
 
-  //depthCloudFilter.registerCallback(receiveDepthCloud);
+    //depthCloudFilter.registerCallback(receiveDepthCloud);
+  #elif defined YOLACT
+    ROS_INFO("Detector \"YOLACT\" used");
+    message_filters::Subscriber<yolact_ros::Detections> detectionsSub(nh, "/detections", 10);
+    //detectionsSub.registerCallback(detectionReceiveTest);
+    message_filters::Synchronizer<DetectionsSyncPolicy> sync(DetectionsSyncPolicy(100), tfCloudFilter, detectionsSub);
+    sync.registerCallback(processDetections);
+  #else
+    ROS_ERROR("Detector not recognized");
+    return -1;
+  #endif
 
   detectedPgPub = nh.advertise<geometry_msgs::PolygonStamped>("detected_pg", 1);
   observationPgPub = nh.advertise<geometry_msgs::PolygonStamped>("observation_pg", 1);
