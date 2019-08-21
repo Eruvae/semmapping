@@ -560,6 +560,13 @@ inline semmapping::point calculateVisibilityEndPoint(const semmapping::point &st
     return semmapping::point(startP.x() + factor * dir.x, startP.y() + factor * dir.y);
 }
 
+inline semmapping::point calculateVisibilityEndPoint(const semmapping::point &startP, const semmapping::point &dir, double dist = 3)
+{
+    double dir_len_plane = std::sqrt(dir.x() * dir.x() + dir.y() * dir.y());
+    double factor = dist / dir_len_plane;
+    return semmapping::point(startP.x() + factor * dir.x(), startP.y() + factor * dir.y());
+}
+
 void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_msgs::BoundingBoxes::ConstPtr &boxes)
 {
     static Eigen::Affine3d lastCamPose;
@@ -647,6 +654,51 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
     semanticMapPub.publish(map_msg);
 }
 
+/*void processClouds(const sensor_msgs::PointCloud2::Ptr &cloud)
+{
+    ROS_INFO("Point cloud received");
+    static Eigen::Affine3d lastCamPose;
+    geometry_msgs::TransformStamped camPose;
+    try
+    {
+       camPose = tfBuffer.lookupTransform("map", cloud->header.frame_id, cloud->header.stamp, ros::Duration(0));
+    }
+    catch (tf2::TransformException ex)
+    {
+        ROS_WARN_STREAM("Could not read transform: " << ex.what());
+       return;
+    }
+
+    Eigen::Affine3d camPoseEigen = tf2::transformToEigen(camPose.transform);
+
+    if (camPoseEigen.isApprox(lastCamPose, 1e-2))
+    {
+        ROS_INFO("Robot has not moved, not processing boxes");
+        return;
+    }
+
+    lastCamPose = camPoseEigen;
+
+
+    //ROS_INFO_STREAM("Time stamps comp - boxes: " << boxes->header.stamp << "; Image header: " << boxes->image_header.stamp << "; cloud: " << cloud->header.stamp);
+    //ROS_INFO_STREAM("Frames: " << boxes->image_header.frame_id << "; " << cloud->header.frame_id);
+    //tfBuffer.transform(*cloud, *cloud, "map");
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pclCloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::fromROSMsg(*cloud, *pclCloud);
+
+    semmapping::polygon comp_area = getCompleteAreaPg(pclCloud);
+    if (comp_area.outer().size() > 0)
+    {
+        geometry_msgs::PolygonStamped comp_area_msg;
+        comp_area_msg.polygon = semmapping::boostToPolygonMsg(comp_area);
+        comp_area_msg.header.frame_id = "map";
+        comp_area_msg.header.stamp = cloud->header.stamp;
+        completeAreaPgPub.publish(comp_area_msg);
+
+        map.removeEvidence(comp_area);
+    }
+}*/
+
 void processDetections(const sensor_msgs::PointCloud2::Ptr &cloud, const yolact_ros::Detections::ConstPtr &detections)
 {
     ROS_INFO("Detection received");
@@ -731,8 +783,9 @@ void processDetections(const sensor_msgs::PointCloud2::Ptr &cloud, const yolact_
     semanticMapPub.publish(map_msg);
 }
 
-void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo, const sensor_msgs::LaserScan::ConstPtr &laserScan)
+void processCamLaser(const sensor_msgs::CameraInfo::ConstPtr &camInfo, const sensor_msgs::LaserScan::ConstPtr &laserScan)
 {
+    ROS_INFO("Cam-laser received");
     static Eigen::Affine3d lastCamPose;
     geometry_msgs::TransformStamped camPose;
     try
@@ -801,14 +854,20 @@ void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo, const senso
     [ INFO] [1554890337.562140750, 36.131000000]: Cam pos: -0.0337588, 0.120642, 1.20268
      */
 
+    semmapping::point p0(camPose.transform.translation.x, camPose.transform.translation.y);
+    //semmapping::point p0_1 = calculateVisibilityEndPoint(p0, vecUpRight->vector, -0.4);
+    //semmapping::point p0_2 = calculateVisibilityEndPoint(p0, vecUpLeft->vector, -0.4);
     semmapping::point p1 = calculateXYPlaneIntersection(camPose.transform.translation, vecUpLeft->vector);
     semmapping::point p2 = calculateXYPlaneIntersection(camPose.transform.translation, vecUpRight->vector);
     semmapping::point p3 = calculateVisibilityEndPoint(p2, vecUpRight->vector);
     semmapping::point p4 = calculateVisibilityEndPoint(p1, vecUpLeft->vector);
 
     semmapping::polygon obPg;
-    semmapping::bg::append(obPg.outer(), p1);
-    semmapping::bg::append(obPg.outer(), p2);
+    semmapping::bg::append(obPg.outer(), p0);
+    //semmapping::bg::append(obPg.outer(), p1);
+    //semmapping::bg::append(obPg.outer(), p2);
+    //semmapping::bg::append(obPg.outer(), p0_1);
+    //semmapping::bg::append(obPg.outer(), p0_2);
     semmapping::bg::append(obPg.outer(), p3);
     semmapping::bg::append(obPg.outer(), p4);
     semmapping::bg::correct(obPg);
@@ -845,12 +904,16 @@ void removeMissing(const sensor_msgs::CameraInfo::ConstPtr &camInfo, const senso
     {
         // DEBUG: publish observation area
         geometry_msgs::PolygonStamped message;
-        message.polygon = semmapping::boostToPolygonMsg(intersectionArea[0]);
+        message.polygon = semmapping::boostToPolygonMsg(obPg);
         message.header.frame_id = "map";
         message.header.stamp = camModel.stamp();
         observationPgPub.publish(message);
 
-        map.removeEvidence(obPg);
+        //map.removeEvidence(obPg);
+    }
+    else
+    {
+      ROS_ERROR("Invalid polygon computed");
     }
 }
 
@@ -894,8 +957,8 @@ void sigintHandler(int sig)
     exit(0);
 }
 
-//#define DARKNET
-#define YOLACT
+#define DARKNET
+//#define YOLACT
 
 /*void detectionReceiveTest(const yolact_ros::Detections::ConstPtr &detections)
 {
@@ -905,12 +968,17 @@ void sigintHandler(int sig)
 int main(int argc, char **argv)
 {
   ros::init(argc, argv, "mapping");
-  ros::NodeHandle nh;
+  ros::NodeHandle nh("~");
 
   tf2_ros::TransformListener tfListener(tfBuffer);
 
-  message_filters::Subscriber<sensor_msgs::PointCloud2> depthCloudSub(nh, "/sensorring_cam3d/depth/points", 1);
+  std::string point_cloud_topic = nh.param<std::string>("point_cloud", "/sensorring_cam3d/depth/points");
+  std::string camera_info_topic = nh.param<std::string>("camera_info", "/sensorring_cam3d/depth/camera_info");
+  std::string laser_scanner_topic = nh.param<std::string>("laser_scanner", "/scan_unified");
+
+  message_filters::Subscriber<sensor_msgs::PointCloud2> depthCloudSub(nh, point_cloud_topic, 20);
   tf2_ros::MessageFilter<sensor_msgs::PointCloud2> tfCloudFilter(depthCloudSub, tfBuffer, "map", 20, nh);
+  //tfCloudFilter.registerCallback(processClouds);
 
   #if defined DARKNET
     ROS_INFO("Detector \"Darknet\" used");
@@ -918,16 +986,16 @@ int main(int argc, char **argv)
 
     message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfCloudFilter, boundingBoxSub);
 
-    //message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, "/sensorring_cam3d/depth/camera_info", 1);
-    //tf2_ros::MessageFilter<sensor_msgs::CameraInfo> tfCamFilter(cameraInfoSub, tfBuffer, "map", 10, nh);
+    message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, camera_info_topic, 1);
+    tf2_ros::MessageFilter<sensor_msgs::CameraInfo> tfCamFilter(cameraInfoSub, tfBuffer, "map", 10, nh);
 
-    //message_filters::Subscriber<sensor_msgs::LaserScan> laserScanSub(nh, "/scan_unified", 1);
+    message_filters::Subscriber<sensor_msgs::LaserScan> laserScanSub(nh, laser_scanner_topic, 1);
 
-    //typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::CameraInfo, sensor_msgs::LaserScan> CamLaserSyncPolicy;
-    //message_filters::Synchronizer<CamLaserSyncPolicy> syncCamLaser(CamLaserSyncPolicy(10), tfCamFilter, laserScanSub);
+    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::CameraInfo, sensor_msgs::LaserScan> CamLaserSyncPolicy;
+    message_filters::Synchronizer<CamLaserSyncPolicy> syncCamLaser(CamLaserSyncPolicy(10), tfCamFilter, laserScanSub);
 
     sync.registerCallback(processBoxes);
-    //syncCamLaser.registerCallback(removeMissing);
+    syncCamLaser.registerCallback(processCamLaser);
 
 
     //tfFilter.registerCallback(processBoxes);
@@ -954,13 +1022,13 @@ int main(int argc, char **argv)
     sync.registerCallback(processDetections);
   #else
     ROS_ERROR("Detector not recognized");
-    return -1;
+    //return -1;
   #endif
 
-  detectedPgPub = nh.advertise<geometry_msgs::PolygonStamped>("detected_pg", 1);
-  observationPgPub = nh.advertise<geometry_msgs::PolygonStamped>("observation_pg", 1);
-  completeAreaPgPub = nh.advertise<geometry_msgs::PolygonStamped>("complete_area_pg", 1);
-  semanticMapPub = nh.advertise<hypermap_msgs::SemanticMap>("semantic_map", 1);
+  detectedPgPub = nh.advertise<geometry_msgs::PolygonStamped>("detected_pg", 1, true);
+  observationPgPub = nh.advertise<geometry_msgs::PolygonStamped>("observation_pg", 1, true);
+  completeAreaPgPub = nh.advertise<geometry_msgs::PolygonStamped>("complete_area_pg", 1, true);
+  semanticMapPub = nh.advertise<hypermap_msgs::SemanticMap>("semantic_map", 1, true);
 
   viewer.runOnVisualizationThreadOnce([](pcl::visualization::PCLVisualizer &vis)
   {
