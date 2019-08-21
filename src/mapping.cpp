@@ -56,6 +56,8 @@
 
 tf2_ros::Buffer tfBuffer(ros::Duration(20));
 ros::Publisher detectedPgPub;
+ros::Publisher camPgPub;
+ros::Publisher laserPgPub;
 ros::Publisher observationPgPub;
 ros::Publisher completeAreaPgPub;
 ros::Publisher semanticMapPub;
@@ -872,6 +874,12 @@ void processCamLaser(const sensor_msgs::CameraInfo::ConstPtr &camInfo, const sen
     semmapping::bg::append(obPg.outer(), p4);
     semmapping::bg::correct(obPg);
 
+    geometry_msgs::PolygonStamped campgMsg;
+    campgMsg.polygon = semmapping::boostToPolygonMsg(obPg);
+    campgMsg.header.frame_id = "map";
+    campgMsg.header.stamp = camModel.stamp();
+    camPgPub.publish(campgMsg);
+
     laser_geometry::LaserProjection projector;
     sensor_msgs::PointCloud2 laserCloud;
     try
@@ -885,7 +893,14 @@ void processCamLaser(const sensor_msgs::CameraInfo::ConstPtr &camInfo, const sen
     }
     pcl::PointCloud<pcl::PointXYZ>::Ptr pclLaserCloud(new pcl::PointCloud<pcl::PointXYZ>);
     pcl::fromROSMsg(laserCloud, *pclLaserCloud);
+    pclLaserCloud->push_back(semmapping::boostToPcl(p0));
     semmapping::polygon laserPg = getConvexHull(pclLaserCloud);
+
+    geometry_msgs::PolygonStamped laserpgMsg;
+    laserpgMsg.polygon = semmapping::boostToPolygonMsg(laserPg);
+    laserpgMsg.header.frame_id = "map";
+    laserpgMsg.header.stamp = camModel.stamp();
+    laserPgPub.publish(laserpgMsg);
 
     /*if (laserPg.outer().size() > 0)
     {
@@ -904,7 +919,7 @@ void processCamLaser(const sensor_msgs::CameraInfo::ConstPtr &camInfo, const sen
     {
         // DEBUG: publish observation area
         geometry_msgs::PolygonStamped message;
-        message.polygon = semmapping::boostToPolygonMsg(obPg);
+        message.polygon = semmapping::boostToPolygonMsg(intersectionArea[0]);
         message.header.frame_id = "map";
         message.header.stamp = camModel.stamp();
         observationPgPub.publish(message);
@@ -1026,6 +1041,8 @@ int main(int argc, char **argv)
   #endif
 
   detectedPgPub = nh.advertise<geometry_msgs::PolygonStamped>("detected_pg", 1, true);
+  camPgPub = nh.advertise<geometry_msgs::PolygonStamped>("camera_pg", 1, true);
+  laserPgPub = nh.advertise<geometry_msgs::PolygonStamped>("laser_pg", 1, true);
   observationPgPub = nh.advertise<geometry_msgs::PolygonStamped>("observation_pg", 1, true);
   completeAreaPgPub = nh.advertise<geometry_msgs::PolygonStamped>("complete_area_pg", 1, true);
   semanticMapPub = nh.advertise<hypermap_msgs::SemanticMap>("semantic_map", 1, true);
