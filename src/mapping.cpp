@@ -521,7 +521,89 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     //return centerCluster;
 }
 
-pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const yolact_ros::Detection det)
+pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, pcl::search::Search<pcl::PointXYZ>::Ptr tree,
+                                       pcl::PointCloud <pcl::Normal>::Ptr normals, const yolact_ros::Detection &det)
+{
+    pcl::RegionGrowing<pcl::PointXYZ, pcl::Normal> reg;
+    reg.setMinClusterSize (50);
+    reg.setMaxClusterSize (1000000);
+    reg.setSearchMethod (tree);
+    reg.setNumberOfNeighbours (30);
+    reg.setInputCloud (cloud);
+    //reg.setIndices (indices);
+
+    pcl::PointIndices::Ptr inds(new pcl::PointIndices);
+
+    for (int x = det.box.x1; x <= det.box.x2; x++)
+    {
+      for (int y = det.box.y1; y <= det.box.y2; y++)
+      {
+        if (det.mask.mask[(y - det.box.y1) * det.mask.width + (x - det.box.x1)])
+        {
+          inds->indices.push_back(y * cloud->width + x);
+        }
+      }
+    }
+
+    reg.setIndices(inds);
+
+    if (reg.getIndices()->size() == 0)
+    {
+        ROS_WARN("No points in point cloud within bounding box");
+        return nullptr;
+    }
+
+    reg.setInputNormals (normals);
+    reg.setSmoothnessThreshold (20.0 / 180.0 * M_PI);
+    reg.setCurvatureThreshold (1.0);
+
+    //int xcent = (box.xmin + box.xmax) / 2;
+    //int ycent = (box.ymin + box.ymax) / 2;
+    //int centerIndex = ycent  * cloud->width + xcent;
+    //pcl::PointIndices::Ptr centerCluster(new pcl::PointIndices);
+    //reg.getSegmentFromPoint(centerIndex, *centerCluster);
+
+    std::vector <pcl::PointIndices> clusters;
+    reg.extract (clusters);
+    //euc.extract (clusters);
+
+    std::cout << "Number of clusters is equal to " << clusters.size() << std::endl;
+    std::cout << "Cluster sizes: ";
+    for (auto &cluster : clusters)
+        std::cout << cluster.indices.size() << ", ";
+    std::cout << std::endl;
+
+
+    /*pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
+    //pcl::visualization::CloudViewer viewer ("Cluster viewer");
+    if (colored_cloud)
+    {
+        viewer.showCloud(colored_cloud);
+        viewer.runOnVisualizationThreadOnce([name = box.Class](pcl::visualization::PCLVisualizer &vis)
+        {
+            vis.updateText(name, 0, 20, "ClassLabel");
+        }
+        );
+    }*/
+
+    size_t maxInd = 0, maxSize = 0;
+    for (size_t i = 0; i < clusters.size(); i++)
+    {
+        if (clusters[i].indices.size() > maxSize)
+        {
+            maxInd = i;
+            maxSize = clusters[i].indices.size();
+        }
+    }
+
+    pcl::PointIndices::Ptr res(new pcl::PointIndices);
+    *res = std::move(clusters[maxInd]);
+    return res;
+
+    //return centerCluster;
+}
+
+pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const yolact_ros::Detection &det)
 {
     pcl::PointIndices::Ptr res(new pcl::PointIndices);
 
@@ -744,10 +826,14 @@ void processDetections(const sensor_msgs::PointCloud2::Ptr &cloud, const yolact_
 
     pcl::transformPointCloud(*pclCloud, *pclCloud, camPoseEigen);
 
+    pcl::search::Search<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ>);
+    pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
+    computeNormals(pclCloud, tree, normals);
+
     for (const yolact_ros::Detection &det : detections->detections)
     {
         //std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
-        pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, det);
+        pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, tree, normals, det);
         if (indices == nullptr || indices->indices.size() == 0)
             continue;
 
