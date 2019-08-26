@@ -48,7 +48,7 @@
 #include "darknet_ros_msgs/BoundingBoxes.h"
 #include "hypermap_msgs/SemanticMap.h"
 #include <geometry_msgs/PolygonStamped.h>
-#include "yolact_ros/Detections.h"
+#include "yolact_ros_msgs/Detections.h"
 
 #include "boxsyncpolicy.h"
 #include "semanticmap.h"
@@ -522,8 +522,10 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
 }
 
 pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, pcl::search::Search<pcl::PointXYZ>::Ptr tree,
-                                       pcl::PointCloud <pcl::Normal>::Ptr normals, const yolact_ros::Detection &det)
+                                       pcl::PointCloud <pcl::Normal>::Ptr normals, const yolact_ros_msgs::Detection &det)
 {
+    ROS_INFO("Extracting Clusters");
+
     pcl::RegionGrowing<pcl::PointXYZ, pcl::Normal> reg;
     reg.setMinClusterSize (50);
     reg.setMaxClusterSize (1000000);
@@ -603,7 +605,7 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     //return centerCluster;
 }
 
-pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const yolact_ros::Detection &det)
+pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr cloud, const yolact_ros_msgs::Detection &det)
 {
     pcl::PointIndices::Ptr res(new pcl::PointIndices);
 
@@ -783,7 +785,7 @@ void processBoxes(const sensor_msgs::PointCloud2::Ptr &cloud, const darknet_ros_
     }
 }*/
 
-void processDetections(const sensor_msgs::PointCloud2::Ptr &cloud, const yolact_ros::Detections::ConstPtr &detections)
+void processDetections(const sensor_msgs::PointCloud2::Ptr &cloud, const yolact_ros_msgs::Detections::ConstPtr &detections)
 {
     ROS_INFO("Detection received");
     static Eigen::Affine3d lastCamPose;
@@ -830,7 +832,7 @@ void processDetections(const sensor_msgs::PointCloud2::Ptr &cloud, const yolact_
     pcl::PointCloud <pcl::Normal>::Ptr normals (new pcl::PointCloud <pcl::Normal>);
     computeNormals(pclCloud, tree, normals);
 
-    for (const yolact_ros::Detection &det : detections->detections)
+    for (const yolact_ros_msgs::Detection &det : detections->detections)
     {
         //std::cout << "Bounding box: (" << box.xmin << " | " << box.xmax << "); (" << box.ymin << " | " << box.ymax << ")" << std::endl;
         pcl::PointIndices::Ptr indices = getObjectPoints(pclCloud, tree, normals, det);
@@ -1061,7 +1063,7 @@ void sigintHandler(int sig)
 #define DARKNET
 //#define YOLACT
 
-/*void detectionReceiveTest(const yolact_ros::Detections::ConstPtr &detections)
+/*void detectionReceiveTest(const yolact_ros_msgs::Detections::ConstPtr &detections)
 {
   ROS_INFO_STREAM("Detection received: " << detections->header.stamp);
 }*/
@@ -1117,7 +1119,7 @@ int main(int argc, char **argv)
     //depthCloudFilter.registerCallback(receiveDepthCloud);
   #elif defined YOLACT
     ROS_INFO("Detector \"YOLACT\" used");
-    message_filters::Subscriber<yolact_ros::Detections> detectionsSub(nh, "/detections", 10);
+    message_filters::Subscriber<yolact_ros_msgs::Detections> detectionsSub(nh, "/detections", 10);
     //detectionsSub.registerCallback(detectionReceiveTest);
     message_filters::Synchronizer<DetectionsSyncPolicy> sync(DetectionsSyncPolicy(100), tfCloudFilter, detectionsSub);
     sync.registerCallback(processDetections);

@@ -9,7 +9,7 @@ add_compile_options(-std=gnu++14)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-  roscpp rospy tf2_ros tf2_geometry_msgs tf2_sensor_msgs pcl_ros sensor_msgs hypermap_msgs darknet_ros_msgs image_geometry laser_geometry yolact_ros
+  roscpp rospy tf2_ros tf2_geometry_msgs tf2_sensor_msgs pcl_ros sensor_msgs hypermap_msgs darknet_ros_msgs image_geometry laser_geometry yolact_ros_msgs
 )
 
 ## System dependencies are found with CMake's conventions

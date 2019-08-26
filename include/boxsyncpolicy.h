@@ -7,7 +7,7 @@
 
 #include <sensor_msgs/PointCloud2.h>
 #include <darknet_ros_msgs/BoundingBoxes.h>
-#include <yolact_ros/Detections.h>
+#include <yolact_ros_msgs/Detections.h>
 //#include <sensor_msgs/CameraInfo.h>
 
 namespace ros
@@ -32,6 +32,6 @@ namespace ros
 
 //typedef message_filters::sync_policies::ExactTime<sensor_msgs::PointCloud2, darknet_ros_msgs::BoundingBoxes> BoxSyncPolicy;
 typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, darknet_ros_msgs::BoundingBoxes> BoxSyncPolicy;
-typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, yolact_ros::Detections> DetectionsSyncPolicy;
+typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::PointCloud2, yolact_ros_msgs::Detections> DetectionsSyncPolicy;
 
 #endif // BOXSYNCPOLICY_H
