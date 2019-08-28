@@ -54,6 +54,8 @@
 #include "semanticmap.h"
 #include "boost_geometry_msgs.h"
 
+//#define SHOW_POINTCLOUD_VISUALIZATION
+
 tf2_ros::Buffer tfBuffer(ros::Duration(20));
 ros::Publisher detectedPgPub;
 ros::Publisher camPgPub;
@@ -64,7 +66,7 @@ ros::Publisher semanticMapPub;
 
 semmapping::SemanticMap map;
 
-pcl::visualization::CloudViewer viewer ("Cluster viewer");
+pcl::visualization::CloudViewer *viewer;
 
 inline bool operator==(const geometry_msgs::Vector3 &lhs, const geometry_msgs::Vector3 &rhs)
 {
@@ -492,17 +494,18 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     std::cout << std::endl;
 
 
-    /*pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
-    //pcl::visualization::CloudViewer viewer ("Cluster viewer");
+    #ifdef SHOW_POINTCLOUD_VISUALIZATION
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
     if (colored_cloud)
     {
-        viewer.showCloud(colored_cloud);
-        viewer.runOnVisualizationThreadOnce([name = box.Class](pcl::visualization::PCLVisualizer &vis)
+        viewer->showCloud(colored_cloud);
+        viewer->runOnVisualizationThreadOnce([name = box.Class](pcl::visualization::PCLVisualizer &vis)
         {
             vis.updateText(name, 0, 20, "ClassLabel");
         }
         );
-    }*/
+    }
+    #endif
 
     size_t maxInd = 0, maxSize = 0;
     for (size_t i = 0; i < clusters.size(); i++)
@@ -536,9 +539,9 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
 
     pcl::PointIndices::Ptr inds(new pcl::PointIndices);
 
-    for (int x = det.box.x1; x <= det.box.x2; x++)
+    for (int y = det.box.y1; y < det.box.y2; y++)
     {
-      for (int y = det.box.y1; y <= det.box.y2; y++)
+      for (int x = det.box.x1; x < det.box.x2; x++)
       {
         if (det.mask.mask[(y - det.box.y1) * det.mask.width + (x - det.box.x1)])
         {
@@ -576,17 +579,18 @@ pcl::PointIndices::Ptr getObjectPoints(pcl::PointCloud<pcl::PointXYZ>::ConstPtr 
     std::cout << std::endl;
 
 
-    /*pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
-    //pcl::visualization::CloudViewer viewer ("Cluster viewer");
+    #ifdef SHOW_POINTCLOUD_VISUALIZATION
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud();
     if (colored_cloud)
     {
-        viewer.showCloud(colored_cloud);
-        viewer.runOnVisualizationThreadOnce([name = box.Class](pcl::visualization::PCLVisualizer &vis)
+        viewer->showCloud(colored_cloud);
+        viewer->runOnVisualizationThreadOnce([name = det.class_name](pcl::visualization::PCLVisualizer &vis)
         {
             vis.updateText(name, 0, 20, "ClassLabel");
         }
         );
-    }*/
+    }
+    #endif
 
     size_t maxInd = 0, maxSize = 0;
     for (size_t i = 0; i < clusters.size(); i++)
@@ -1060,8 +1064,8 @@ void sigintHandler(int sig)
     exit(0);
 }
 
-#define DARKNET
-//#define YOLACT
+//#define DARKNET
+#define YOLACT
 
 /*void detectionReceiveTest(const yolact_ros_msgs::Detections::ConstPtr &detections)
 {
@@ -1083,23 +1087,23 @@ int main(int argc, char **argv)
   tf2_ros::MessageFilter<sensor_msgs::PointCloud2> tfCloudFilter(depthCloudSub, tfBuffer, "map", 20, nh);
   //tfCloudFilter.registerCallback(processClouds);
 
+  message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, camera_info_topic, 1);
+  tf2_ros::MessageFilter<sensor_msgs::CameraInfo> tfCamFilter(cameraInfoSub, tfBuffer, "map", 10, nh);
+
+  message_filters::Subscriber<sensor_msgs::LaserScan> laserScanSub(nh, laser_scanner_topic, 1);
+
+  typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::CameraInfo, sensor_msgs::LaserScan> CamLaserSyncPolicy;
+  message_filters::Synchronizer<CamLaserSyncPolicy> syncCamLaser(CamLaserSyncPolicy(10), tfCamFilter, laserScanSub);
+
+  syncCamLaser.registerCallback(processCamLaser);
+
   #if defined DARKNET
     ROS_INFO("Detector \"Darknet\" used");
     message_filters::Subscriber<darknet_ros_msgs::BoundingBoxes> boundingBoxSub(nh, "/darknet_ros/bounding_boxes", 1);
 
     message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfCloudFilter, boundingBoxSub);
 
-    message_filters::Subscriber<sensor_msgs::CameraInfo> cameraInfoSub(nh, camera_info_topic, 1);
-    tf2_ros::MessageFilter<sensor_msgs::CameraInfo> tfCamFilter(cameraInfoSub, tfBuffer, "map", 10, nh);
-
-    message_filters::Subscriber<sensor_msgs::LaserScan> laserScanSub(nh, laser_scanner_topic, 1);
-
-    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::CameraInfo, sensor_msgs::LaserScan> CamLaserSyncPolicy;
-    message_filters::Synchronizer<CamLaserSyncPolicy> syncCamLaser(CamLaserSyncPolicy(10), tfCamFilter, laserScanSub);
-
     sync.registerCallback(processBoxes);
-    syncCamLaser.registerCallback(processCamLaser);
-
 
     //tfFilter.registerCallback(processBoxes);
 
@@ -1133,13 +1137,16 @@ int main(int argc, char **argv)
   laserPgPub = nh.advertise<geometry_msgs::PolygonStamped>("laser_pg", 1, true);
   observationPgPub = nh.advertise<geometry_msgs::PolygonStamped>("observation_pg", 1, true);
   completeAreaPgPub = nh.advertise<geometry_msgs::PolygonStamped>("complete_area_pg", 1, true);
-  semanticMapPub = nh.advertise<hypermap_msgs::SemanticMap>("semantic_map", 1, true);
+  semanticMapPub = nh.advertise<hypermap_msgs::SemanticMap>("/semantic_map", 1, true);
 
-  viewer.runOnVisualizationThreadOnce([](pcl::visualization::PCLVisualizer &vis)
+  #ifdef SHOW_POINTCLOUD_VISUALIZATION
+  viewer = new pcl::visualization::CloudViewer("Cluster viewer");
+  viewer->runOnVisualizationThreadOnce([](pcl::visualization::PCLVisualizer &vis)
   {
       vis.addText("No Class", 0, 20, "ClassLabel");
   }
   );
+  #endif
 
   ros::AsyncSpinner spinner(4);
   spinner.start();
