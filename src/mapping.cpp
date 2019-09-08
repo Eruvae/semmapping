@@ -1151,6 +1151,37 @@ int main(int argc, char **argv)
   ros::AsyncSpinner spinner(4);
   spinner.start();
 
+  bool load_file = nh.param<bool>("load_file", false);
+  if (load_file)
+  {
+    if (!nh.hasParam("file"))
+    {
+        ROS_ERROR("File to load not specified");
+        return -1;
+    }
+    std::string file_name;
+    nh.getParam("file", file_name);
+    std::ifstream file(file_name);
+    if (!file)
+    {
+        ROS_ERROR("File could not be opened");
+    }
+    else
+    {
+      if (map.readMapData(file))
+      {
+          ROS_INFO("Map loaded successfully");
+          hypermap_msgs::SemanticMap::Ptr map_msg = map.createMapMessage();
+          semanticMapPub.publish(map_msg);
+      }
+      else
+      {
+          ROS_ERROR("Failed loading map");
+      }
+      file.close();
+    }
+  }
+
   signal(SIGINT, sigintHandler);
 
   std::cout << "Waiting for input. type \"help\" for help." << std::endl;
@@ -1168,7 +1199,23 @@ int main(int argc, char **argv)
       {
           std::string fname = readNext(in, it);
           std::cout << "Loading map file: " << fname << std::endl;
-          // TODO
+          std::ifstream file(fname);
+          if (!file)
+          {
+              std::cout << "File could not be opened" << std::endl;
+              continue;
+          }
+          if (map.readMapData(file))
+          {
+              std::cout << "Map loaded successfully" << std::endl;
+              hypermap_msgs::SemanticMap::Ptr map_msg = map.createMapMessage();
+              semanticMapPub.publish(map_msg);
+          }
+          else
+          {
+              std::cout << "Failed loading map" << std::endl;
+          }
+          file.close();
       }
       else if (command == "save")
       {

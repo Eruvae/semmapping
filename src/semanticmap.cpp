@@ -492,11 +492,27 @@ void SemanticMap::addNewObject(const std::string name, const polygon &initial_sh
     next_index++;
 }
 
+void SemanticMap::addObject(const SemanticObject &obj)
+{
+    objectList[next_index] = obj;
+    rtree_entry ent = {obj.bounding_box, next_index};
+    objectRtree.insert(ent);
+    ROS_INFO_STREAM("Succesfully added, size: " << objectRtree.size());
+    next_index++;
+}
+
 void SemanticMap::removeObject(size_t id)
 {
     SemanticObject &obj = objectList.at(id);
     objectRtree.remove(std::make_pair(obj.bounding_box, id));
     objectList.erase(id);
+}
+
+void SemanticMap::clearAll()
+{
+    objectList.clear();
+    objectRtree.clear();
+    next_index = 0;
 }
 
 std::set<size_t> SemanticMap::getObjectsInRange(const polygon &pg)
@@ -637,6 +653,7 @@ bool SemanticMap::writeMapData(std::ostream &output)
 
 bool SemanticMap::readMapData(std::istream &input)
 {
+    clearAll();
     YAML::Node map = YAML::Load(input);
     for (const YAML::Node &entry : map)
     {
@@ -674,6 +691,7 @@ bool SemanticMap::readMapData(std::istream &input)
         }
         bg::correct(obj.shape_union);
         obj.bounding_box = bg::return_envelope<box>(obj.shape_union);
+        addObject(obj);
     }
     return true;
 }

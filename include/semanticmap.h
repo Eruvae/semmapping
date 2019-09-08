@@ -141,7 +141,9 @@ public:
   void filterIntersectionThresh(std::set<size_t> &object_list, const polygon &pg);
   int findFittingExistingShape(std::vector<UncertainShape> &shapes, const polygon &pg);
   void addNewObject(const std::string name, const polygon &initial_shape);
+  void addObject(const SemanticObject &obj);
   void removeObject(size_t id);
+  void clearAll();
   size_t combineObjects(std::set<size_t> objects);
   std::set<size_t> getObjectsInRange(const polygon &pg);
   std::set<size_t> getObjectsWithinRange(const polygon &pg);
