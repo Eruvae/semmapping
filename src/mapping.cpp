@@ -1148,7 +1148,7 @@ int main(int argc, char **argv)
   );
   #endif
 
-  ros::AsyncSpinner spinner(4);
+  ros::AsyncSpinner spinner(16);
   spinner.start();
 
   bool load_file = nh.param<bool>("load_file", false);
