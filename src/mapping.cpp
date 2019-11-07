@@ -1064,9 +1064,6 @@ void sigintHandler(int sig)
     exit(0);
 }
 
-//#define DARKNET
-#define YOLACT
-
 /*void detectionReceiveTest(const yolact_ros_msgs::Detections::ConstPtr &detections)
 {
   ROS_INFO_STREAM("Detection received: " << detections->header.stamp);
@@ -1078,6 +1075,8 @@ int main(int argc, char **argv)
   ros::NodeHandle nh("~");
 
   tf2_ros::TransformListener tfListener(tfBuffer);
+
+  std::string detector = nh.param<std::string>("detector", "darknet");
 
   std::string point_cloud_topic = nh.param<std::string>("point_cloud", "/sensorring_cam3d/depth/points");
   std::string camera_info_topic = nh.param<std::string>("camera_info", "/sensorring_cam3d/depth/camera_info");
@@ -1097,13 +1096,17 @@ int main(int argc, char **argv)
 
   syncCamLaser.registerCallback(processCamLaser);
 
-  #if defined DARKNET
+  message_filters::Subscriber<darknet_ros_msgs::BoundingBoxes> boundingBoxSub;
+  message_filters::Synchronizer<BoxSyncPolicy> syncBoxes(BoxSyncPolicy(10), tfCloudFilter, boundingBoxSub);
+
+  message_filters::Subscriber<yolact_ros_msgs::Detections> detectionsSub;
+  message_filters::Synchronizer<DetectionsSyncPolicy> syncDets(DetectionsSyncPolicy(100), tfCloudFilter, detectionsSub);
+
+  if (detector == "darknet")
+  {
     ROS_INFO("Detector \"Darknet\" used");
-    message_filters::Subscriber<darknet_ros_msgs::BoundingBoxes> boundingBoxSub(nh, "/darknet_ros/bounding_boxes", 1);
-
-    message_filters::Synchronizer<BoxSyncPolicy> sync(BoxSyncPolicy(10), tfCloudFilter, boundingBoxSub);
-
-    sync.registerCallback(processBoxes);
+    boundingBoxSub.subscribe(nh, "/darknet_ros/bounding_boxes", 1);
+    syncBoxes.registerCallback(processBoxes);
 
     //tfFilter.registerCallback(processBoxes);
 
@@ -1121,16 +1124,20 @@ int main(int argc, char **argv)
     depthCloudSub.subscribe(nh, "/gibson_ros/camera/depth_registered/points", 10);*/
 
     //depthCloudFilter.registerCallback(receiveDepthCloud);
-  #elif defined YOLACT
+  }
+  else if (detector == "yolact")
+  {
     ROS_INFO("Detector \"YOLACT\" used");
-    message_filters::Subscriber<yolact_ros_msgs::Detections> detectionsSub(nh, "/detections", 10);
+    detectionsSub.subscribe(nh, "/detections", 10);
     //detectionsSub.registerCallback(detectionReceiveTest);
-    message_filters::Synchronizer<DetectionsSyncPolicy> sync(DetectionsSyncPolicy(100), tfCloudFilter, detectionsSub);
-    sync.registerCallback(processDetections);
-  #else
+
+    syncDets.registerCallback(processDetections);
+  }
+  else
+  {
     ROS_ERROR("Detector not recognized");
     //return -1;
-  #endif
+  }
 
   detectedPgPub = nh.advertise<geometry_msgs::PolygonStamped>("detected_pg", 1, true);
   camPgPub = nh.advertise<geometry_msgs::PolygonStamped>("camera_pg", 1, true);
