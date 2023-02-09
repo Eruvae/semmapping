@@ -1090,9 +1090,10 @@ int main(int argc, char **argv)
   tf2_ros::MessageFilter<sensor_msgs::CameraInfo> tfCamFilter(cameraInfoSub, tfBuffer, "map", 10, nh);
 
   message_filters::Subscriber<sensor_msgs::LaserScan> laserScanSub(nh, laser_scanner_topic, 1);
+  tf2_ros::MessageFilter<sensor_msgs::LaserScan> tfLaserFilter(laserScanSub, tfBuffer, "map", 10, nh);
 
   typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::CameraInfo, sensor_msgs::LaserScan> CamLaserSyncPolicy;
-  message_filters::Synchronizer<CamLaserSyncPolicy> syncCamLaser(CamLaserSyncPolicy(10), tfCamFilter, laserScanSub);
+  message_filters::Synchronizer<CamLaserSyncPolicy> syncCamLaser(CamLaserSyncPolicy(10), tfCamFilter, tfLaserFilter);
 
   syncCamLaser.registerCallback(processCamLaser);
 
